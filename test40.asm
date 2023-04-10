@@ -12,6 +12,7 @@ LOOP:
 ;	CALL	GETTONE		;SSG NOTE DISP
         JP      LOOP
 
+;=================================================
 BTDSP:
 	LD	HL, (WRKPTR)
 	LD	E, (HL)
@@ -50,11 +51,10 @@ KONCHK:
 	JR	Z, RSTPOS
 	RET
 
+;=================================================
+
 RSTPOS:
-	LD	A, 0C8H
-	LD	L, A
-	LD	A, 0F3H
-	LD	H, A
+	LD	HL, 0F3C8H
 	LD	(POSCNT), HL
 
 RSTWRK:
@@ -71,6 +71,8 @@ NUMCHK:
 ATOF:
         ADD     A, 'A'
         RET
+
+;=================================================
 
 GETFNUM:
         LD      HL, (WRKPTR2)
@@ -93,7 +95,7 @@ GETOCT:
         AND     07H             ;UPR 5BIT CUT
         LD      D, A
         LD      A, E		;LWR 8BIT 0 CHK
-        CP      0
+        AND     A
         JR      Z, NZERO
 
         LD      B, 12           ;DEC CNT TO 0
@@ -121,6 +123,8 @@ NZERO:
 	LD	B, 0
         JP      WDSP
 
+;=================================================
+
 NEXIST:
         LD      HL, NOTE
         LD      A, 12
@@ -139,21 +143,16 @@ SKIPLP:
 WDSP:
         LD      DE, (POSNTE)	;NOTE DISP POS
 	LD	HL, (NOTEPTR)
-        LD      A, (HL)
-        LD      (DE), A         ;DISPLAY UPPER
-        INC     DE
-        INC     HL
-        LD      A, (HL)
-        LD      (DE), A         ;DISPLAY LOWER
-        INC     DE              ;NEXT NUMBER
+        LDI                     ;DISPLAY UPPER
+        LDI                     ;DISPLAY LOWER
         LD      (POSNTE), DE
 
 NOTECHK:
         PUSH    BC
         LD      BC, 0F44CH      ;FM1~6 12BYTE
-        AND     A               ;RESET Z FLAG
         PUSH    DE              ;DE ADDR CHECK
         EX      DE, HL          ;DE->HL
+        AND     A               ;RESET Z FLAG
         SBC     HL, BC
         POP     DE
         POP     BC
@@ -164,20 +163,20 @@ NOTECHK:
 	LD	(WRKPTR2), HL
         RET
 
+;=================================================
+
 RSTPOS2:
-        LD      A, 040H
-        LD      L, A
-        LD      A, 0F4H
-        LD      H, A
-        LD      (POSNTE), HL
+        LD      HL, 0F440H      ;POSNTE FIRST ADR
+        LD      (POSNTE), HL    ;POSNTE RESET
 
 RSTWRK2:
 	LD	HL, WRKADR2	;FM1 FNUM WORK ADR
-        LD      (WRKPTR2), HL	;WORK PTR 2 SET
+        LD      (WRKPTR2), HL	;WORK PTR 2 RESET
 	RET
 
-
+;=================================================
 ;WORK AREA
+
 WRKPTR: DW      0
 WRKPTR2:DW	0
 FNMPTR: DW      0
