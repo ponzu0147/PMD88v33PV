@@ -13,12 +13,19 @@ LOOP:
         JP      LOOP
 
 ;=================================================
-BTDSP:
-	LD	HL, (WRKPTR)
-	LD	E, (HL)
+;SUBROUTINES
+
+PTOPDW:
+        LD	E, (HL)
 	INC	HL
 	LD	D, (HL)
 	INC	HL
+        RET
+
+;=================================================
+BTDSP:
+	LD	HL, (WRKPTR)
+        CALL    PTOPDW          ;(HL)->HL DE:DSTRY
 	LD	(WRKPTR), HL
 	EX	DE, HL
         LD      DE, (POSCNT)    ;LPCNT DISP POS
@@ -42,9 +49,9 @@ BTDSP:
 KONCHK:
 	PUSH	BC
 	LD	BC, 0F3DCH	;ALL PART 10CH
-	AND	A
 	PUSH	DE
 	EX	DE, HL
+	AND	A
 	SBC	HL, BC
 	POP	DE
 	POP	BC
@@ -104,10 +111,7 @@ GETOCT:
 
 GETNOTE:
 	PUSH	DE
-        LD      E, (HL)
-	INC	HL
-	LD	D, (HL)		;DE:CMP NOTE
-	INC	HL
+        CALL    PTOPDW          ;(HL)->HL DE:DSTRY
 	LD	(FNMPTR), HL
 	EX	DE, HL		;HL:CMP NOTE
 	POP	DE		;DE:CUR NOTE
