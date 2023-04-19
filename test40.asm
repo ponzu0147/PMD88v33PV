@@ -1,4 +1,4 @@
-        ORG     08500H
+        ORG     08400H
 
 INIT:
         LD      HL, WRKADR      ;FM1 LEN WORK ADR
@@ -51,7 +51,7 @@ PTOPDW:
 
 GETNOTE:
 	PUSH	DE
-        CALL    PTOPDW          ;(HL)->HL DE:DSTRY
+        CALL    PTOPDW          ;(HL)->DE
 	LD	(FNMPTR), HL
 	EX	DE, HL		;HL:COMPARE NOTE
 	POP	DE		;DE:CUR NOTE
@@ -105,7 +105,7 @@ NOTECHK:
 
 RSTPOS2:
         LD      HL, 0F440H      ;POSNTE FIRST ADR
-        LD      (POSNTE), HL   ;POSNTE RESET
+        LD      (POSNTE), HL    ;POSNTE RESET
 
 RSTWRK2:
 	LD	HL, WRKADR2	;FM1 FNUM WORK ADR
@@ -137,7 +137,7 @@ GETOCT:
         JR      Z, NZERO
 
         LD      B, 12           ;DEC CNT TO 0
-        LD      HL, FNUM
+        LD      HL, FNUMBER
 	LD	(FNMPTR), HL
         JP      GETNOTE
 
@@ -156,7 +156,7 @@ GETTONE:
         AND     A
         JP      Z, NZERO
 
-        LD      A, 0            ;INC CNT TO 96
+        XOR     A               ;INC CNT TO 96
         LD      HL, SSGTP
 	LD	(FNMPTR), HL
 
@@ -195,8 +195,8 @@ ZEROS:
 
 SETOCTS:
         PUSH    AF
-        LD      A, B
-        LD      (OCTAVE), A     ;B:OCTAVE(0~7)
+        LD      A, B            ;B:OCTAVE(0~7)
+        LD      (OCTAVE), A     
         POP     AF              ;A:NOTE(0~11)
         LD      B, A            ;NEXIST NEEDS NOTE
         JP      NEXIST
@@ -289,7 +289,7 @@ WRKADR2:DW      0BD61H          ;FM1
         DW      0BE76H          ;SSG2
         DW      0BEA1H          ;SSG3
 
-FNUM:   DW      618             ;C
+FNUMBER:DW      618             ;C
         DW      655             ;C+
         DW      694             ;D
         DW      735             ;D+
@@ -422,4 +422,63 @@ OCTDATA:DB      'o1'
         DB      'o7'
         DB      'o8'
 
+;ALL PART WORKADRESS (SOURCE FROM PMD88v3.7 BY KAJA)
+;FM/SSG/ADPCM/RYTHME
+ADDRESS:	EQU	0	; 2 ´Ý¿³Á­³ É ±ÄÞÚ½
+PARTLP: 	EQU	2       ; 2 ´Ý¿³ É ÓÄÞØ»·
+LENG:		EQU	4       ; 1 ÉºØ LENGTH
+
+RHYTHML:        EQU	5
+
+;FM/SSG/ADPCM
+FNUM:		EQU	5       ; 2 ´Ý¿³Á­³ É BLOCK/FNUM
+DETUNE:		EQU	7       ; 2 ÃÞÁ­°Ý
+LFODAT:		EQU	9       ; 2 LFO DATA
+QDAT:		EQU	11      ; 1 Q É ±À²
+VOLUME:		EQU	12      ; 1 VOLUME
+SHIFT:		EQU	13      ; 1 µÝ¶² ¼ÌÄ É ±À²
+DELAY:		EQU	14      ; 1 LFO	(DELAY) 
+SPEED:		EQU	15      ; 1	(SPEED)
+STEP:		EQU	16      ; 1	(STEP)
+TIME:		EQU	17      ; 1	(TIME)
+DELAY2:		EQU	18      ; 1	(DELAY_2)
+SPEED2:		EQU	19      ; 1	(SPEED_2)
+STEP2:		EQU	20      ; 1	(STEP_2)
+TIME2:		EQU	21      ; 1	(TIME_2)
+LFOSWI:		EQU	22      ; 1 LFO SWITCH (0=OFF)
+VOLPUSH:	EQU	23	; 1 VOLUME PUSH
+PORTANM:	EQU	24	; 2 PORTA ADD ALL
+PORTAN2:	EQU	26	; 2 PORTA ADD 1LOOP
+PORTAN3:	EQU	28	; 2 PORTA ADD AMARI
+MDEPTH:		EQU	30	; 1 M DEPTH
+MDSPD:		EQU	31	; 1 M SPEED
+MDSPD2:		EQU	32	; 1 M SPEED_2
+
+;SSG/ADPCM
+ENVF:		EQU	33      ; 1 PSG ENV. (START_FLAG)
+PAT:		EQU	34      ; 1	(AT)
+PV2:		EQU	35      ; 1	(V2)
+PR1:		EQU	36      ; 1	(R1)
+PR2:		EQU	37      ; 1	(R2)
+PATB:		EQU	38	; 1	(AT_B)
+PR1B:		EQU	39      ; 1	(R1_B)
+PR2B:		EQU	40      ; 1	(R2_B)
+PENV:		EQU	41      ; 1	(VOLUME +-)
+
+PCMLEN:    	EQU	42
+
+;FM
+ALGO:		EQU	33      ; 1 ´Ý¿³Á­³ È²Û É ALGO.
+SLOT1:		EQU	34      ; 1 SLOT 1 É TL
+SLOT3:		EQU	35      ; 1 SLOT 3 É TL
+SLOT2:		EQU	36      ; 1 SLOT 2 É TL
+SLOT4:		EQU	37      ; 1 SLOT 4 É TL
+FMPAN:		EQU	38	; 1 FM PANNING + AMD + PMD
+
+FMLEN:     	EQU	39
+
+;SSG
+PSGPAT:		EQU	42      ; 1 PSG PATTERN (TONE/NOISE/MIX)
+
+PSGLEN:    	EQU	43
 
