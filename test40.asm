@@ -1,5 +1,14 @@
         ORG     08400H
 
+PMD88HK:
+        LD      IX, (HK1A)      ;
+        LD      (IX), HK1V      ;C3(JP) CMD WRITE
+        LD      HL, PMDHK1
+        LD      A, L
+        LD      (IX+1), A       ;PMDHK1 ADDR WRITE
+        LD      A, H
+        LD      (IX+2), A
+
 INIT:
         LD      HL, WRKADR      ;FM1 LEN WORK ADR
         LD      (WRKPTR), HL    ;WORK PTR SET
@@ -8,6 +17,7 @@ INIT:
         XOR     A               ;INIT A=0 FOR LOOP
 
 LOOP:
+;       CALL    MUTECHK
         CP      6               ;6~8:SSG
         JR      Z, SSG
         CP      7
@@ -17,8 +27,9 @@ LOOP:
         CP      9
         JR      Z, ADPCM        ;9:ADPCM
         JP      FM              ;0~5:FM
-        JP      LOOP
 
+        JP      LOOP
+;=================================================
 FM:
         PUSH    AF
         CALL    BTDSP		;LOOP CNT DISP
@@ -42,6 +53,190 @@ ADPCM:
         JP      LOOP
 
 ;=================================================
+; ABOUT MUTE FLAG (DW)
+; xxxx x000 0000 0000
+; ONLY BIT0 IS FM1 ~ BIT10 IS RHYTHM USE
+; x: ALWAYS ZERO
+; 0: PLAY CH
+; 1: MUTE CH
+
+MUTECHK:
+        PUSH    HL              ;REGS SAVE
+        PUSH    DE
+        PUSH    BC
+        PUSH    AF
+
+        LD      HL, (MUTEFLG)   ;SET FLAG TO HL
+        LD      IX, (WRKADR)    ;WRKADR GET
+        LD      (MUTEPTR),IX    ;MUTEPTR SET
+        LD      DE, 0
+        SBC     HL, DE          ;ALL BIT 0 CHECK
+        JR      Z, MUTEEND
+        LD      B, 11           ;BIT COUNTER SET
+
+MUTELP:
+        PUSH    HL
+        LD      A, L
+        AND     00000001B       ;0BIT CHECK
+        POP     HL
+        JR      NZ, MUTECH
+        JP      PLAYCH
+
+SHIFTCH:
+        SRL     H               ;HL RIGHT SHIFT
+        RR      L
+        DJNZ    MUTELP
+
+MUTEEND:
+        POP     AF              ;REGS RESTORE
+        POP     BC
+        POP     DE
+        POP     HL
+        RET                     ;END SUBROUTINE
+
+MUTECH:
+        LD      (IX+VOLUME-4), 0;SET MIN VOL
+        JP      MUPLCH
+
+PLAYCH:
+        LD      (IX+VOLUME-4), 0;SET NORMAL VOL
+
+MUPLCH:
+        PUSH    HL
+        PUSH    BC
+        POP     DE
+        EX      DE, HL          ;BC<->HL
+        LD      A, 11
+        SUB     B               ;FM1:10-10=0
+        PUSH    BC
+        CP      6               ;6~8:SSG
+        JR      Z, SSGPLUS
+        CP      7
+        JR      Z, SSGPLUS
+        CP      8
+        JR      Z, SSGPLUS
+        CP      9
+        JR      Z, PCMPLUS      ;9:ADPCM
+        CP      10
+        JR      Z, RHYPLUS      ;10:RHYTHM
+        LD      BC, FMLEN       ;FMLEN:39
+        JP      PLUSADR
+
+SSGPLUS:
+        LD      BC, SSGLEN      ;SSGLEN:43
+        JP      PLUSADR
+
+PCMPLUS:
+        LD      BC, PCMLEN      ;PCMLEN:42
+        JP      PLUSADR
+
+RHYPLUS:
+        LD      BC, RHYTHML     ;RHYTHML:5
+
+PLUSADR:
+        ADD     HL, BC
+        LD      (MUTEPTR),HL
+        POP     BC
+        POP     HL
+        JP      SHIFTCH
+
+;=================================================
+; HOOK FROM PMD88 MUSIC PLAYER MAIN ROUTINE
+PMDHK1:
+        LD      IY, MUTEFLG     ;MUTE FLG 11BIT
+        LD      A, (0BD42H)
+	OR	A
+	JR	NZ, MMHOOK
+
+        BIT     6, (IY)         ;SSG1
+        JR      NZ, SSG2        ;Z=1 -> MUTE
+	LD	IX, 0BE46H
+	LD	A,1
+	LD	(PARTB),A
+	CALL	PSGMAIN
+
+SSG2:
+        BIT     7, (IY)         ;SSG2
+        JR      NZ, SSG3        ;Z=1 -> MUTE
+	LD	IX, 0BE71H
+	LD	A,2
+	LD	(PARTB),A
+	CALL	PSGMAIN
+
+SSG3:
+        BIT     0, (IY+1)       ;SSG3
+        JR      NZ, MMHOOK      ;Z=1 -> MUTE
+	LD	IX, 0BE9CH
+	LD	A,3
+	LD	(PARTB),A
+	CALL	PSGMAIN
+
+MMHOOK:
+        BIT     1, (IY+1)       ;ADPCM
+        JR      NZ, RHYTHM      ;Z=1 -> MUTE
+	LD	IX, 0BEC7H
+	CALL	PCMMAIN		; IN "PCMDRV.MAC"
+
+RHYTHM:
+        BIT     2, (IY+1)       ;ADPCM
+        JR      NZ, RHYTHM      ;Z=1 -> MUTE
+	LD	IX, 0BEF1H
+	CALL	RHYMAIN
+
+FM1:
+        BIT     0, (IY)         ;FM1
+        JR      NZ, FM2         ;Z=1 -> MUTE
+	LD	IX, 0BD5CH
+	LD	A,1
+	LD	(PARTB),A
+	CALL	FMMAIN
+
+FM2:
+        BIT     1, (IY)         ;FM2
+        JR      NZ, FM3         ;Z=1 -> MUTE
+	LD	IX, 0BD83H
+	LD	A,2
+	LD	(PARTB),A
+	CALL	FMMAIN
+
+FM3:
+        BIT     2, (IY)         ;FM3
+        JR      NZ, CSEL46      ;Z=1 -> MUTE
+	LD	IX, 0BDAAH
+	LD	A,3
+	LD	(PARTB),A
+	CALL	FMMAIN
+
+CSEL46:
+	CALL	SEL46
+
+FM4:
+        BIT     3, (IY)         ;FM4
+        JR      NZ, FM5         ;Z=1 -> MUTE
+	LD	IX, 0BDD1H
+	LD	A,1
+	LD	(PARTB),A
+	CALL	FMMAIN
+
+FM5:
+        BIT     4, (IY)         ;FM5
+        JR      NZ, FM6         ;Z=1 -> MUTE
+	LD	IX, 0BDF8H
+	LD	A,2
+	LD	(PARTB),A
+	CALL	FMMAIN
+
+FM6:
+        BIT     5, (IY)         ;FM6
+        JR      NZ, CHEND       ;Z=1 -> MUTE
+	LD	IX, 0BE1FH
+	LD	A,3
+	LD	(PARTB),A
+	CALL	FMMAIN
+
+CHEND:
+        JP      0AAE2H
+;=================================================
 PTOPDW:
         LD	E, (HL)
 	INC	HL
@@ -51,7 +246,7 @@ PTOPDW:
 
 GETNOTE:
 	PUSH	DE
-        CALL    PTOPDW          ;(HL)->DE
+        CALL    PTOPDW          ;(HL)->DE.HL+=2
 	LD	(FNMPTR), HL
 	EX	DE, HL		;HL:COMPARE NOTE
 	POP	DE		;DE:CUR NOTE
@@ -162,7 +357,7 @@ GETTONE:
 
 GETNTES:
 	PUSH	DE
-        CALL    PTOPDW          ;(HL)->HL DE:DSTRY
+        CALL    PTOPDW          ;(HL)->DE
 	LD	(FNMPTR), HL
 	EX	DE, HL		;HL:CMP NOTE
 	POP	DE		;DE:CUR NOTE
@@ -259,14 +454,25 @@ ATOF:
 ;=================================================
 ;WORK AREA
 
+HK1A:   DW      0AA5FH          ;SOURCE 0AA5CH
+HK1V:   EQU     0C3H            ;JP COMMAND
+PARTB:  EQU     0BD3BH          ;PMD88 PARTB
+PSGMAIN:EQU     0B14FH          ;PMD88 PSGMAIN
+PCMMAIN:EQU     0AB44H          ;PMD88 PCMMAIN
+RHYMAIN:EQU     0B1EFH          ;PMD88 RHYTHMMAIN
+FMMAIN: EQU     0B0CFH          ;PMD88 FMMAIN
+SEL46:  EQU     0B0A8H          ;PMD88 SEL46
+HK1RT:  EQU     0AAE2H          ;RETURN ADDR
 WRKPTR: DW      0
-WRKPTR2:DW	0
+WRKPTR2:DW      0
 FNMPTR: DW      0
-FNMTMP:	DW	0
+FNMTMP:	DW      0
 NOTEPTR:DW      0
 OCTAVE: DB      0
 POSCNT: DW      0F3C8H          ;DISPLAY COUNTER POS
 POSNTE: DW      0F440H          ;DISPLAY NOTE POS
+MUTEFLG:DW      2               ;PLAY(0)/MUTE(1) 11CH
+MUTEPTR:DW      0
 
 WRKADR: DW      0BD60H          ;FM1
         DW      0BD87H          ;FM2
@@ -422,8 +628,9 @@ OCTDATA:DB      'o1'
         DB      'o7'
         DB      'o8'
 
+;===================================================
 ;ALL PART WORKADRESS (SOURCE FROM PMD88v3.7 BY KAJA)
-;FM/SSG/ADPCM/RYTHME
+;FM/SSG/ADPCM/RHYTHM
 ADDRESS:	EQU	0	; 2 ´Ý¿³Á­³ É ±ÄÞÚ½
 PARTLP: 	EQU	2       ; 2 ´Ý¿³ É ÓÄÞØ»·
 LENG:		EQU	4       ; 1 ÉºØ LENGTH
@@ -478,7 +685,7 @@ FMPAN:		EQU	38	; 1 FM PANNING + AMD + PMD
 FMLEN:     	EQU	39
 
 ;SSG
-PSGPAT:		EQU	42      ; 1 PSG PATTERN (TONE/NOISE/MIX)
+SSGPAT:		EQU	42      ; 1 PSG PATTERN (TONE/NOISE/MIX)
 
-PSGLEN:    	EQU	43
+SSGLEN:    	EQU	43
 
