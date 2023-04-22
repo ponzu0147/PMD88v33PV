@@ -178,8 +178,8 @@ MMHOOK:
 	CALL	PCMMAIN		; IN "PCMDRV.MAC"
 
 RHYTHM:
-        BIT     2, (IY+1)       ;ADPCM
-        JR      NZ, RHYTHM      ;Z=1 -> MUTE
+        BIT     2, (IY+1)       ;RHYTHM
+        JR      NZ, FM1         ;Z=1 -> MUTE
 	LD	IX, 0BEF1H
 	CALL	RHYMAIN
 
