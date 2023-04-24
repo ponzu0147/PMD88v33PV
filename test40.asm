@@ -1,4 +1,4 @@
-        ORG     08400H
+        ORG     0C800H
 
 PMD88HK:
         LD      IX, (HK1A)      ;
@@ -17,7 +17,9 @@ INIT:
         XOR     A               ;INIT A=0 FOR LOOP
 
 LOOP:
-;       CALL    MUTECHK
+        PUSH    AF
+        CALL    MUTECHK         ;MUTE/PLAY CH
+        POP     AF
         CP      6               ;6~8:SSG
         JR      Z, SSG
         CP      7
@@ -61,147 +63,255 @@ ADPCM:
 ; 1: MUTE CH
 
 MUTECHK:
-        PUSH    HL              ;REGS SAVE
-        PUSH    DE
-        PUSH    BC
-        PUSH    AF
+        PUSH    IY
+        LD      IY, MUTEFLG
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     0, A
+        JR      Z, SPLOOP
+        BIT     1, A
+        JR      Z, SPLOOP
+        BIT     2, A
+        JR      Z, SPLOOP
+        BIT     3, A
+        JR      Z, SPLOOP
+        BIT     4, A
+        JR      Z, SPLOOP
+        BIT     5, A
+        JR      Z, SPLOOP
+        BIT     6, A
+        JR      Z, SPLOOP
+        BIT     7, A
+        JR      Z, SPLOOP
+        IN      A, (007H)       ;KBD MATRIX 8,9
+        BIT     0, A
+        JR      Z, SPLOOP
+        BIT     1, A
+        JR      Z, SPLOOP
+        IN      A, (005H)       ;KBD MATRIX -
+        BIT     7, A
+        JR      Z, SPLOOP
 
-        LD      HL, (MUTEFLG)   ;SET FLAG TO HL
-        LD      IX, (WRKADR)    ;WRKADR GET
-        LD      (MUTEPTR),IX    ;MUTEPTR SET
-        LD      DE, 0
-        SBC     HL, DE          ;ALL BIT 0 CHECK
-        JR      Z, MUTEEND
-        LD      B, 11           ;BIT COUNTER SET
 
-MUTELP:
-        PUSH    HL
-        LD      A, L
-        AND     00000001B       ;0BIT CHECK
-        POP     HL
-        JR      NZ, MUTECH
-        JP      PLAYCH
+SPLOOP:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     0, A
+        JP      Z, ADPCMMP
+        BIT     1, A
+        JP      Z, FM1MP
+        BIT     2, A
+        JP      Z, FM2MP
+        BIT     3, A
+        JP      Z, FM3MP
+        BIT     4, A
+        JP      Z, FM4MP
+        BIT     5, A
+        JP      Z, FM5MP
+        BIT     6, A
+        JP      Z, FM6MP
+        BIT     7, A
+        JP      Z, SSG1MP
+        IN      A, (007H)       ;KBD MATRIX 8,9
+        BIT     0, A
+        JP      Z, SSG2MP
+        BIT     1, A
+        JP      Z, SSG3MP
+        IN      A, (005H)       ;KBD MATRIX -
+        BIT     7, A
+        JP      Z, RHYMP
 
-SHIFTCH:
-        SRL     H               ;HL RIGHT SHIFT
-        RR      L
-        DJNZ    MUTELP
+ADPCMMP:
+        BIT     1, (IY+1)
+        JR      NZ, SETMPCM
+        RES     1, (IY+1)
+        JP      MPEND
 
-MUTEEND:
-        POP     AF              ;REGS RESTORE
-        POP     BC
-        POP     DE
-        POP     HL
-        RET                     ;END SUBROUTINE
+SETMPCM:
+        SET     1, (IY+1)
+        JP      MPEND
 
-MUTECH:
-        LD      (IX+VOLUME-4), 0;SET MIN VOL
-        JP      MUPLCH
+FM1MP:
+        BIT     0, (IY)
+        JR      Z, SETMFM1
+        RES     0, (IY)
+        JP      MPEND
 
-PLAYCH:
-        LD      (IX+VOLUME-4), 0;SET NORMAL VOL
+SETMFM1:
+        SET     0, (IY)
+        JP      MPEND
 
-MUPLCH:
-        PUSH    HL
-        PUSH    BC
-        POP     DE
-        EX      DE, HL          ;BC<->HL
-        LD      A, 11
-        SUB     B               ;FM1:10-10=0
-        PUSH    BC
-        CP      6               ;6~8:SSG
-        JR      Z, SSGPLUS
-        CP      7
-        JR      Z, SSGPLUS
-        CP      8
-        JR      Z, SSGPLUS
-        CP      9
-        JR      Z, PCMPLUS      ;9:ADPCM
-        CP      10
-        JR      Z, RHYPLUS      ;10:RHYTHM
-        LD      BC, FMLEN       ;FMLEN:39
-        JP      PLUSADR
+FM2MP:
+        BIT     1, (IY)
+        JR      NZ, SETMFM2
+        RES     1, (IY)
+        JP      MPEND
 
-SSGPLUS:
-        LD      BC, SSGLEN      ;SSGLEN:43
-        JP      PLUSADR
+SETMFM2:
+        SET     1, (IY)
+        JP      MPEND
 
-PCMPLUS:
-        LD      BC, PCMLEN      ;PCMLEN:42
-        JP      PLUSADR
+FM3MP:
+        BIT     2, (IY)
+        JR      NZ, SETMFM3
+        RES     2, (IY)
+        JP      MPEND
 
-RHYPLUS:
-        LD      BC, RHYTHML     ;RHYTHML:5
+SETMFM3:
+        SET     2, (IY)
+        JP      MPEND
 
-PLUSADR:
-        ADD     HL, BC
-        LD      (MUTEPTR),HL
-        POP     BC
-        POP     HL
-        JP      SHIFTCH
+FM4MP:
+        BIT     3, (IY)
+        JR      NZ, SETMFM4
+        RES     3, (IY)
+        JP      MPEND
+
+SETMFM4:
+        SET     3, (IY)
+        JP      MPEND
+
+FM5MP:
+        BIT     4, (IY)
+        JR      NZ, SETMFM5
+        RES     4, (IY)
+        JP      MPEND
+
+SETMFM5:
+        SET     4, (IY)
+        JP      MPEND
+
+FM6MP:
+        BIT     5, (IY)
+        JR      NZ, SETMFM6
+        RES     5, (IY)
+        JP      MPEND
+
+SETMFM6:
+        SET     5, (IY)
+        JP      MPEND
+
+SSG1MP:
+        BIT     6, (IY)
+        JR      NZ, SETMSG1
+        RES     6, (IY)
+        JP      MPEND
+
+SETMSG1:
+        SET     6, (IY)
+        JP      MPEND
+
+SSG2MP:
+        BIT     7, (IY)
+        JR      NZ, SETMSG2
+        RES     7, (IY)
+        JP      MPEND
+
+SETMSG2:
+        SET     7, (IY)
+        JP      MPEND
+
+SSG3MP:
+        BIT     0, (IY+1)
+        JR      NZ, SETMSG3
+        RES     0, (IY+1)
+        JP      MPEND
+
+SETMSG3:
+        SET     0, (IY+1)
+        JP      MPEND
+
+RHYMP:
+        BIT     2, (IY+1)
+        JR      NZ, SETMRHY
+        RES     2, (IY+1)
+        JP      MPEND
+
+SETMRHY:
+        SET     2, (IY+1)
+
+MPEND:
+        POP     IY
+        RET
 
 ;=================================================
 ; HOOK FROM PMD88 MUSIC PLAYER MAIN ROUTINE
+; A: PMD88 PLAY CHANNEL DETECTION
+
 PMDHK1:
         LD      IY, MUTEFLG     ;MUTE FLG 11BIT
         LD      A, (0BD42H)
 	OR	A
 	JR	NZ, MMHOOK
 
-        BIT     6, (IY)         ;SSG1
-        JR      NZ, SSG2        ;Z=1 -> MUTE
+;       BIT     6, (IY)         ;SSG1
+;       JR      NZ, SSG2        ;Z=1 -> MUTE
+        LD      A, 6            ;SSG1 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BE46H
 	LD	A,1
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 SSG2:
-        BIT     7, (IY)         ;SSG2
-        JR      NZ, SSG3        ;Z=1 -> MUTE
+;       BIT     7, (IY)         ;SSG2
+;       JR      NZ, SSG3        ;Z=1 -> MUTE
+        LD      A, 7            ;SSG2 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BE71H
 	LD	A,2
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 SSG3:
-        BIT     0, (IY+1)       ;SSG3
-        JR      NZ, MMHOOK      ;Z=1 -> MUTE
+;       BIT     0, (IY+1)       ;SSG3
+;       JR      NZ, MMHOOK      ;Z=1 -> MUTE
+        LD      A, 8            ;SSG2 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BE9CH
 	LD	A,3
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 MMHOOK:
-        BIT     1, (IY+1)       ;ADPCM
-        JR      NZ, RHYTHM      ;Z=1 -> MUTE
+;       BIT     1, (IY+1)       ;ADPCM
+;       JR      NZ, RHYTHM      ;Z=1 -> MUTE
+        LD      A, 9            ;ADPCM SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BEC7H
 	CALL	PCMMAIN		; IN "PCMDRV.MAC"
 
 RHYTHM:
-        BIT     2, (IY+1)       ;RHYTHM
-        JR      NZ, FM1         ;Z=1 -> MUTE
+;       BIT     2, (IY+1)       ;RHYTHM
+;       JR      NZ, FM1         ;Z=1 -> MUTE
+        LD      A, 10           ;RHYTHM SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BEF1H
 	CALL	RHYMAIN
 
 FM1:
-        BIT     0, (IY)         ;FM1
-        JR      NZ, FM2         ;Z=1 -> MUTE
+;       BIT     0, (IY)         ;FM1
+;       JR      NZ, FM2         ;Z=1 -> MUTE
+        LD      A, 0            ;FM1 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BD5CH
 	LD	A,1
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM2:
-        BIT     1, (IY)         ;FM2
-        JR      NZ, FM3         ;Z=1 -> MUTE
+;       BIT     1, (IY)         ;FM2
+;       JR      NZ, FM3         ;Z=1 -> MUTE
+        LD      A, 1            ;FM2 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BD83H
 	LD	A,2
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM3:
-        BIT     2, (IY)         ;FM3
-        JR      NZ, CSEL46      ;Z=1 -> MUTE
+;       BIT     2, (IY)         ;FM3
+;       JR      NZ, CSEL46      ;Z=1 -> MUTE
+        LD      A, 2            ;FM3 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BDAAH
 	LD	A,3
 	LD	(PARTB),A
@@ -211,24 +321,30 @@ CSEL46:
 	CALL	SEL46
 
 FM4:
-        BIT     3, (IY)         ;FM4
-        JR      NZ, FM5         ;Z=1 -> MUTE
+;       BIT     3, (IY)         ;FM4
+;       JR      NZ, FM5         ;Z=1 -> MUTE
+        LD      A, 3            ;FM4 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BDD1H
 	LD	A,1
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM5:
-        BIT     4, (IY)         ;FM5
-        JR      NZ, FM6         ;Z=1 -> MUTE
+;       BIT     4, (IY)         ;FM5
+;       JR      NZ, FM6         ;Z=1 -> MUTE
+        LD      A, 4            ;FM5 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BDF8H
 	LD	A,2
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM6:
-        BIT     5, (IY)         ;FM6
-        JR      NZ, CHEND       ;Z=1 -> MUTE
+;       BIT     5, (IY)         ;FM6
+;       JR      NZ, CHEND       ;Z=1 -> MUTE
+        LD      A, 5            ;FM6 SELECTED
+        LD      (SELCH), A
 	LD	IX, 0BE1FH
 	LD	A,3
 	LD	(PARTB),A
@@ -454,6 +570,7 @@ ATOF:
 ;=================================================
 ;WORK AREA
 
+SELCH:  DB      0               ;PMD88 SELECTED CH
 HK1A:   DW      0AA5FH          ;SOURCE 0AA5CH
 HK1V:   EQU     0C3H            ;JP COMMAND
 PARTB:  EQU     0BD3BH          ;PMD88 PARTB
