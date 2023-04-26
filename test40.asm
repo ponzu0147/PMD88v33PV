@@ -8,9 +8,18 @@ PMD88HK:
         LD      (IX+1), A       ;PMDHK1 ADDR WRITE
         LD      A, H
         LD      (IX+2), A
+
         LD      IX, (HK2A)      ;PMD88 VOLPUSHCAL
         LD      (IX), HK2V      ;JP(C3) CMD
         LD      HL, PMDHK2
+        LD      A, L
+        LD      (IX+1), A       ;PMDHK2 ADDR WRITE
+        LD      A, H
+        LD      (IX+2), A
+
+        LD      IX, (HK3A)      ;PMD88 VOLSET
+        LD      (IX), HK3V      ;JP(C3) CMD
+        LD      HL, PMDHK3
         LD      A, L
         LD      (IX+1), A       ;PMDHK2 ADDR WRITE
         LD      A, H
@@ -70,10 +79,10 @@ PMDHK2:
         LD      HL, (MUTEFLG)   ;MUTEFLG(DW)
         LD      A, (SELCH)      ;NOW PLAYING CH
         CALL    CHCHK
-        POP     HL
 
 	LD	A, (IX+VOLPUSH)
 	OR	A
+        POP     HL
 	RET	Z
 	LD	HL, VOLFLAG     ;FROM PMD88
 	DEC	(HL)
@@ -84,36 +93,57 @@ PMDHK2:
         INC     A               ;USE v3.7
 	RET
 
+;=================================================
+; HOOK FROM PMD88 VOLUME PUSH CALC SUBROUTINE
+; ORG LABEL OF PMD88: VOLSET
+
+PMDHK3:
+;        PUSH    HL
+;        LD      HL, (MUTEFLG)   ;MUTEFLG(DW)
+;        LD      A, (SELCH)      ;NOW PLAYING CH
+;        CALL    CHCHK
+
+        LD      A, (IX+VOLPUSH)
+;        POP     HL
+        JP      0B97AH          ;RETURN PMD88
+;=================================================
+
 CHCHK:
-        CP      0
+        CP      0               ;CMP SELCH VALUE
         JR      Z, CMPMPCH      ;MUTE OR PLAY?
+;        JR      Z, MUCHEND      ;DUMMY JR
         DEC     A               ;GOTO NEXT CH
         SRL     H               ;HL: MUTEFLG
         RR      L               ;1BIT RIGHT SHIFT
         JP      CHCHK
 
 CMPMPCH:
-        LD      A, 0
+;        LD      A, 0
         LD      (VOLFLAG), A
 	LD	(IX+VOLPUSH), 0 ;NORMAL VOL(PLAY)
         LD      A, L
-        AND     01H
+        AND     01H             ;BIT0 COMPARE
+	LD	(IX+VOLPUSH), 0 ;NORMAL VOL(PLAY)
         JR      Z, MUCHEND      ;NO MATCH IS PLAY
         LD      A, (SELCH)      ;MUTE CH CHK
-        CP      6               ;SSG1
-        JR      Z, SSGVOL
-        CP      7               ;SSG2
-        JR      Z, SSGVOL
-        CP      8               ;SSG3
-        JR      Z, SSGVOL
-        LD      A, 02H          ;FLAG>1 NEXT MUTE
+        CP      6               ;SSG~RHYTHM SKIP
+        JR      C, FMVOL
+        JP      MUCHEND
+;        JR      Z, SSGVOL
+;        CP      7               ;SSG2
+;        JR      Z, SSGVOL
+;        CP      8               ;SSG3
+;        JR      Z, SSGVOL
+
+FMVOL:
+        LD      A, 02H          ;FLAG=1 NEXT MUTE
         LD      (VOLFLAG), A    ;MUTE SET
         LD      (IX+VOLPUSH), -127;FM MIN VOL
         JP      MUCHEND
 
 SSGVOL: 
-        LD      A, 02H          ;FLAG>1 NEXT MUTE
-        LD      (VOLFLAG), A    ;MUTE SET
+;        LD      A, 00H          ;FLAG=1 NEXT MUTE
+;        LD      (VOLFLAG), A    ;MUTE SET
         LD      (IX+VOLPUSH), -15;SSG MIN VOL
 
 MUCHEND:
@@ -128,65 +158,67 @@ MUCHEND:
 ; 1: MUTE CH
 
 MUTECHK:
+        XOR     A
         PUSH    IY
         LD      IY, MUTEFLG
         IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     0, A
+        BIT     0, A            ;KEY 0 PUSHED
         JR      Z, SPLOOP
-        BIT     1, A
+        BIT     1, A            ;KEY 1 PUSHED
         JR      Z, SPLOOP
-        BIT     2, A
+        BIT     2, A            ;KEY 2 PUSHED
         JR      Z, SPLOOP
-        BIT     3, A
+        BIT     3, A            ;KEY 3 PUSHED
         JR      Z, SPLOOP
-        BIT     4, A
+        BIT     4, A            ;KEY 4 PUSHED
         JR      Z, SPLOOP
-        BIT     5, A
+        BIT     5, A            ;KEY 5 PUSHED
         JR      Z, SPLOOP
-        BIT     6, A
+        BIT     6, A            ;KEY 6 PUSHED
         JR      Z, SPLOOP
-        BIT     7, A
+        BIT     7, A            ;KEY 7 PUSHED
         JR      Z, SPLOOP
         IN      A, (007H)       ;KBD MATRIX 8,9
-        BIT     0, A
+        BIT     0, A            ;KEY 8 PUSHED
         JR      Z, SPLOOP
-        BIT     1, A
+        BIT     1, A            ;KEY 9 PUSHED
         JR      Z, SPLOOP
         IN      A, (005H)       ;KBD MATRIX -
-        BIT     7, A
+        BIT     7, A            ;KEY - PUSHED
         JR      Z, SPLOOP
-
+        JP      MPEND
 
 SPLOOP:
         IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     0, A
+        BIT     0, A            ;KEY(0):ADPCM
         JP      Z, ADPCMMP
-        BIT     1, A
+        BIT     1, A            ;KEY(1):FM1
         JP      Z, FM1MP
-        BIT     2, A
+        BIT     2, A            ;KEY(2):FM2
         JP      Z, FM2MP
-        BIT     3, A
+        BIT     3, A            ;KEY(3):FM3
         JP      Z, FM3MP
-        BIT     4, A
+        BIT     4, A            ;KEY(4):FM4
         JP      Z, FM4MP
-        BIT     5, A
+        BIT     5, A            ;KEY(5):FM5
         JP      Z, FM5MP
-        BIT     6, A
+        BIT     6, A            ;KEY(6):FM6
         JP      Z, FM6MP
-        BIT     7, A
+        BIT     7, A            ;KEY(7):SSG1
         JP      Z, SSG1MP
         IN      A, (007H)       ;KBD MATRIX 8,9
-        BIT     0, A
+        BIT     0, A            ;KEY(8):SSG2
         JP      Z, SSG2MP
-        BIT     1, A
+        BIT     1, A            ;KEY(9):SSG3
         JP      Z, SSG3MP
         IN      A, (005H)       ;KBD MATRIX -
-        BIT     7, A
+        BIT     7, A            ;KEY(-):ADPCM
         JP      Z, RHYMP
+        JP      MPEND
 
 ADPCMMP:
         BIT     1, (IY+1)
-        JR      NZ, SETMPCM
+        JR      Z, SETMPCM
         RES     1, (IY+1)
         JP      MPEND
 
@@ -206,7 +238,7 @@ SETMFM1:
 
 FM2MP:
         BIT     1, (IY)
-        JR      NZ, SETMFM2
+        JR      Z, SETMFM2
         RES     1, (IY)
         JP      MPEND
 
@@ -216,7 +248,7 @@ SETMFM2:
 
 FM3MP:
         BIT     2, (IY)
-        JR      NZ, SETMFM3
+        JR      Z, SETMFM3
         RES     2, (IY)
         JP      MPEND
 
@@ -226,7 +258,7 @@ SETMFM3:
 
 FM4MP:
         BIT     3, (IY)
-        JR      NZ, SETMFM4
+        JR      Z, SETMFM4
         RES     3, (IY)
         JP      MPEND
 
@@ -236,7 +268,7 @@ SETMFM4:
 
 FM5MP:
         BIT     4, (IY)
-        JR      NZ, SETMFM5
+        JR      Z, SETMFM5
         RES     4, (IY)
         JP      MPEND
 
@@ -246,7 +278,7 @@ SETMFM5:
 
 FM6MP:
         BIT     5, (IY)
-        JR      NZ, SETMFM6
+        JR      Z, SETMFM6
         RES     5, (IY)
         JP      MPEND
 
@@ -256,7 +288,7 @@ SETMFM6:
 
 SSG1MP:
         BIT     6, (IY)
-        JR      NZ, SETMSG1
+        JR      Z, SETMSG1
         RES     6, (IY)
         JP      MPEND
 
@@ -266,7 +298,7 @@ SETMSG1:
 
 SSG2MP:
         BIT     7, (IY)
-        JR      NZ, SETMSG2
+        JR      Z, SETMSG2
         RES     7, (IY)
         JP      MPEND
 
@@ -276,7 +308,7 @@ SETMSG2:
 
 SSG3MP:
         BIT     0, (IY+1)
-        JR      NZ, SETMSG3
+        JR      Z, SETMSG3
         RES     0, (IY+1)
         JP      MPEND
 
@@ -286,7 +318,7 @@ SETMSG3:
 
 RHYMP:
         BIT     2, (IY+1)
-        JR      NZ, SETMRHY
+        JR      Z, SETMRHY
         RES     2, (IY+1)
         JP      MPEND
 
@@ -299,16 +331,15 @@ MPEND:
 
 ;=================================================
 ; HOOK FROM PMD88 MUSIC PLAYER MAIN ROUTINE
+; ORG LABEL OF PMD88: mmain_opm
 ; A: PMD88 PLAY CHANNEL DETECTION
 
 PMDHK1:
-        LD      IY, MUTEFLG     ;MUTE FLG 11BIT
         LD      A, (0BD42H)
 	OR	A
 	JR	NZ, MMHOOK
 
-;       BIT     6, (IY)         ;SSG1
-;       JR      NZ, SSG2        ;Z=1 -> MUTE
+SSG1:
         LD      A, 6            ;SSG1 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE46H
@@ -317,8 +348,6 @@ PMDHK1:
 	CALL	PSGMAIN
 
 SSG2:
-;       BIT     7, (IY)         ;SSG2
-;       JR      NZ, SSG3        ;Z=1 -> MUTE
         LD      A, 7            ;SSG2 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE71H
@@ -327,8 +356,6 @@ SSG2:
 	CALL	PSGMAIN
 
 SSG3:
-;       BIT     0, (IY+1)       ;SSG3
-;       JR      NZ, MMHOOK      ;Z=1 -> MUTE
         LD      A, 8            ;SSG3 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE9CH
@@ -337,24 +364,18 @@ SSG3:
 	CALL	PSGMAIN
 
 MMHOOK:
-;       BIT     1, (IY+1)       ;ADPCM
-;       JR      NZ, RHYTHM      ;Z=1 -> MUTE
         LD      A, 9            ;ADPCM SELECTED
         LD      (SELCH), A
 	LD	IX, 0BEC7H
 	CALL	PCMMAIN		; IN "PCMDRV.MAC"
 
 RHYTHM:
-;       BIT     2, (IY+1)       ;RHYTHM
-;       JR      NZ, FM1         ;Z=1 -> MUTE
         LD      A, 10           ;RHYTHM SELECTED
         LD      (SELCH), A
 	LD	IX, 0BEF1H
 	CALL	RHYMAIN
 
 FM1:
-;       BIT     0, (IY)         ;FM1
-;       JR      NZ, FM2         ;Z=1 -> MUTE
         LD      A, 0            ;FM1 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BD5CH
@@ -363,8 +384,6 @@ FM1:
 	CALL	FMMAIN
 
 FM2:
-;       BIT     1, (IY)         ;FM2
-;       JR      NZ, FM3         ;Z=1 -> MUTE
         LD      A, 1            ;FM2 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BD83H
@@ -373,8 +392,6 @@ FM2:
 	CALL	FMMAIN
 
 FM3:
-;       BIT     2, (IY)         ;FM3
-;       JR      NZ, CSEL46      ;Z=1 -> MUTE
         LD      A, 2            ;FM3 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BDAAH
@@ -386,8 +403,6 @@ CSEL46:
 	CALL	SEL46
 
 FM4:
-;       BIT     3, (IY)         ;FM4
-;       JR      NZ, FM5         ;Z=1 -> MUTE
         LD      A, 3            ;FM4 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BDD1H
@@ -396,8 +411,6 @@ FM4:
 	CALL	FMMAIN
 
 FM5:
-;       BIT     4, (IY)         ;FM5
-;       JR      NZ, FM6         ;Z=1 -> MUTE
         LD      A, 4            ;FM5 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BDF8H
@@ -406,8 +419,6 @@ FM5:
 	CALL	FMMAIN
 
 FM6:
-;       BIT     5, (IY)         ;FM6
-;       JR      NZ, CHEND       ;Z=1 -> MUTE
         LD      A, 5            ;FM6 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE1FH
@@ -640,6 +651,8 @@ HK1A:   DW      0AA5FH          ;SOURCE 0AA5CH
 HK1V:   EQU     0C3H            ;JP COMMAND
 HK2A:   DW      0B9CAH          ;SOURCE 0B9CAH
 HK2V:   EQU     0C3H            ;JP COMMAND
+HK3A:   DW      0B977H          ;SOURCE 0B977H
+HK3V:   EQU     0C3H            ;JP COMMAND
 VOLFLAG:EQU     0BD43H          ;PMD88 VOLPUSH_FLAG
 PARTB:  EQU     0BD3BH          ;PMD88 PARTB
 PSGMAIN:EQU     0B14FH          ;PMD88 PSGMAIN
@@ -657,7 +670,6 @@ OCTAVE: DB      0
 POSCNT: DW      0F3C8H          ;DISPLAY COUNTER POS
 POSNTE: DW      0F440H          ;DISPLAY NOTE POS
 MUTEFLG:DW      0               ;PLAY(0)/MUTE(1) 11CH
-MUTEPTR:DW      0
 
 WRKADR: DW      0BD60H          ;FM1
         DW      0BD87H          ;FM2
