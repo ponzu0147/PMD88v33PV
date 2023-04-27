@@ -5,7 +5,7 @@ PMD88HK:
         LD      (IX), HK1V      ;JP(C3) CMD
         LD      HL, PMDHK1
         LD      A, L
-        LD      (IX+1), A       ;PMDHK1 ADDR WRITE
+        LD      (IX+1), A       ;PMD88 ADDR REWRITE
         LD      A, H
         LD      (IX+2), A
 
@@ -13,15 +13,7 @@ PMD88HK:
         LD      (IX), HK2V      ;JP(C3) CMD
         LD      HL, PMDHK2
         LD      A, L
-        LD      (IX+1), A       ;PMDHK2 ADDR WRITE
-        LD      A, H
-        LD      (IX+2), A
-
-        LD      IX, (HK3A)      ;PMD88 VOLSET
-        LD      (IX), HK3V      ;JP(C3) CMD
-        LD      HL, PMDHK3
-        LD      A, L
-        LD      (IX+1), A       ;PMDHK2 ADDR WRITE
+        LD      (IX+1), A       ;PMD88 ADDR REWRITE
         LD      A, H
         LD      (IX+2), A
 
@@ -75,75 +67,97 @@ ADPCM:
 ; ORG LABEL OF PMD88: VOLPUSH_CAL
 
 PMDHK2:
-        PUSH    HL
-        LD      HL, (MUTEFLG)   ;MUTEFLG(DW)
-        LD      A, (SELCH)      ;NOW PLAYING CH
-        CALL    CHCHK
+        LD      A, (NOWCHMT)
+        CP      0
+        CALL    NZ, CHMUTE
 
-	LD	A, (IX+VOLPUSH)
+	LD	A, (IX+VOLPUSH) ;VOLPUSH=0 RETURN
 	OR	A
-        POP     HL
 	RET	Z
 	LD	HL, VOLFLAG     ;FROM PMD88
 	DEC	(HL)
 	RET	Z
 	INC	(HL)
+CHKOK:
+        LD      A, (NOWCHMT)
+        CP      0
+        JR      NZ, CHKOUT
         XOR     A
-;	LD	(IX+VOLPUSH), A ;DON'T USE
-        INC     A               ;USE v3.7
+	LD	(IX+VOLPUSH), A ;SET VOLPUSH=0
+        INC     A               ;??? USE v3.7
+CHKOUT:
+;        XOR     0
+;        LD      (NOWCHMT), A    ;NEXT CH RESET
 	RET
-
 ;=================================================
-; HOOK FROM PMD88 VOLUME PUSH CALC SUBROUTINE
-; ORG LABEL OF PMD88: VOLSET
+; SUBROUTINE
+; OUTPUT: (NOWCHMT)= NOW CH IS MUTE(1) OR PLAY(0)
 
-PMDHK3:
-;        PUSH    HL
-;        LD      HL, (MUTEFLG)   ;MUTEFLG(DW)
-;        LD      A, (SELCH)      ;NOW PLAYING CH
-;        CALL    CHCHK
+SETMP:
+        XOR     A
+        LD      (NOWCHMT), A    ;RESET NOWCHMT
+        LD      HL, (MUTEFLG)
+        LD      A, (SELCH)
 
-        LD      A, (IX+VOLPUSH)
-;        POP     HL
-        JP      0B97AH          ;RETURN PMD88
-;=================================================
-
-CHCHK:
+SETLOOP:
         CP      0               ;CMP SELCH VALUE
-        JR      Z, CMPMPCH      ;MUTE OR PLAY?
-;        JR      Z, MUCHEND      ;DUMMY JR
+        JR      Z, SETCH        ;MUTE? OR PLAY?
         DEC     A               ;GOTO NEXT CH
         SRL     H               ;HL: MUTEFLG
         RR      L               ;1BIT RIGHT SHIFT
-        JP      CHCHK
+        JP      SETLOOP
 
-CMPMPCH:
-;        LD      A, 0
-        LD      (VOLFLAG), A
-	LD	(IX+VOLPUSH), 0 ;NORMAL VOL(PLAY)
+SETCH:
         LD      A, L
         AND     01H             ;BIT0 COMPARE
-	LD	(IX+VOLPUSH), 0 ;NORMAL VOL(PLAY)
-        JR      Z, MUCHEND      ;NO MATCH IS PLAY
+        JR      Z, SETEND      ;ZERO IS NORMAL
+        LD      (NOWCHMT), A    ;NOW CH MUTE SET
+
+SETEND:
+        RET
+
+;=================================================
+; SUBROUTINE
+; CH MUTE
+
+CHMUTE:
         LD      A, (SELCH)      ;MUTE CH CHK
-        CP      6               ;SSG~RHYTHM SKIP
-        JR      C, FMVOL
+        CP      0               ;FM1
+        JR      Z, FMVOL
+        CP      1               ;FM2
+        JR      Z, FMVOL
+        CP      2               ;FM3
+        JR      Z, FMVOL
+        CP      3               ;FM4
+        JR      Z, FMVOL
+        CP      4               ;FM5
+        JR      Z, FMVOL
+        CP      5               ;FM6
+        JR      Z, FMVOL
+        CP      6               ;SSG1
+        JR      Z, SSGVOL
+        CP      7               ;SSG2
+        JR      Z, SSGVOL
+        CP      8               ;SSG3
+        JR      Z, SSGVOL
+        CP      9               ;ADPCM
+        JR      Z, SSGVOL
+        CP      10              ;RHYTHM
+        JR      Z, SSGVOL
         JP      MUCHEND
-;        JR      Z, SSGVOL
-;        CP      7               ;SSG2
-;        JR      Z, SSGVOL
-;        CP      8               ;SSG3
-;        JR      Z, SSGVOL
+
+NORVOL:
+        JP      MUCHEND
 
 FMVOL:
-        LD      A, 02H          ;FLAG=1 NEXT MUTE
+        LD      A, 01H          ;FLAG=1 NEXT MUTE
         LD      (VOLFLAG), A    ;MUTE SET
         LD      (IX+VOLPUSH), -127;FM MIN VOL
         JP      MUCHEND
 
 SSGVOL: 
-;        LD      A, 00H          ;FLAG=1 NEXT MUTE
-;        LD      (VOLFLAG), A    ;MUTE SET
+        LD      A, 01H          ;FLAG=1 NEXT MUTE
+        LD      (VOLFLAG), A    ;MUTE SET
         LD      (IX+VOLPUSH), -15;SSG MIN VOL
 
 MUCHEND:
@@ -343,6 +357,7 @@ SSG1:
         LD      A, 6            ;SSG1 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE46H
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 1
 	LD	(PARTB),A
 	CALL	PSGMAIN
@@ -351,6 +366,7 @@ SSG2:
         LD      A, 7            ;SSG2 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE71H
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 2
 	LD	(PARTB),A
 	CALL	PSGMAIN
@@ -358,6 +374,7 @@ SSG2:
 SSG3:
         LD      A, 8            ;SSG3 SELECTED
         LD      (SELCH), A
+        CALL    SETMP           ;NOWCHMT SET
 	LD	IX, 0BE9CH
 	LD	A, 3
 	LD	(PARTB),A
@@ -366,12 +383,14 @@ SSG3:
 MMHOOK:
         LD      A, 9            ;ADPCM SELECTED
         LD      (SELCH), A
+        CALL    SETMP           ;NOWCHMT SET
 	LD	IX, 0BEC7H
 	CALL	PCMMAIN		; IN "PCMDRV.MAC"
 
 RHYTHM:
         LD      A, 10           ;RHYTHM SELECTED
         LD      (SELCH), A
+        CALL    SETMP           ;NOWCHMT SET
 	LD	IX, 0BEF1H
 	CALL	RHYMAIN
 
@@ -379,6 +398,7 @@ FM1:
         LD      A, 0            ;FM1 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BD5CH
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 1
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -387,6 +407,7 @@ FM2:
         LD      A, 1            ;FM2 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BD83H
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 2
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -395,6 +416,7 @@ FM3:
         LD      A, 2            ;FM3 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BDAAH
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 3
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -406,6 +428,7 @@ FM4:
         LD      A, 3            ;FM4 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BDD1H
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 1
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -414,6 +437,7 @@ FM5:
         LD      A, 4            ;FM5 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BDF8H
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 2
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -422,6 +446,7 @@ FM6:
         LD      A, 5            ;FM6 SELECTED
         LD      (SELCH), A
 	LD	IX, 0BE1FH
+        CALL    SETMP           ;NOWCHMT SET
 	LD	A, 3
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -647,12 +672,10 @@ ATOF:
 ;WORK AREA
 
 SELCH:  DB      0               ;PMD88 SELECTED CH
-HK1A:   DW      0AA5FH          ;SOURCE 0AA5CH
+HK1A:   DW      0AA5FH          ;PMD88 SOURCE ADDR
 HK1V:   EQU     0C3H            ;JP COMMAND
-HK2A:   DW      0B9CAH          ;SOURCE 0B9CAH
+HK2A:   DW      0B9CAH          ;PMD88 SOURCE ADDR
 HK2V:   EQU     0C3H            ;JP COMMAND
-HK3A:   DW      0B977H          ;SOURCE 0B977H
-HK3V:   EQU     0C3H            ;JP COMMAND
 VOLFLAG:EQU     0BD43H          ;PMD88 VOLPUSH_FLAG
 PARTB:  EQU     0BD3BH          ;PMD88 PARTB
 PSGMAIN:EQU     0B14FH          ;PMD88 PSGMAIN
@@ -670,6 +693,7 @@ OCTAVE: DB      0
 POSCNT: DW      0F3C8H          ;DISPLAY COUNTER POS
 POSNTE: DW      0F440H          ;DISPLAY NOTE POS
 MUTEFLG:DW      0               ;PLAY(0)/MUTE(1) 11CH
+NOWCHMT:DB      0               ;PLAYING CH IS MUTE?
 
 WRKADR: DW      0BD60H          ;FM1
         DW      0BD87H          ;FM2
