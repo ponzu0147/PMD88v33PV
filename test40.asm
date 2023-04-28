@@ -1,11 +1,14 @@
         ORG     0C800H
 
+;=================================================
+; PMD88 ORGINAL PROGRAM CODE REWRITE 
+
 PMD88HK:
         LD      IX, (HK1A)      ;PMD88 PLAY
         LD      (IX), HK1V      ;JP(C3) CMD
         LD      HL, PMDHK1
         LD      A, L
-        LD      (IX+1), A       ;PMD88 ADDR REWRITE
+        LD      (IX+1), A       ;PMD88 ADDR WRITE
         LD      A, H
         LD      (IX+2), A
 
@@ -13,9 +16,12 @@ PMD88HK:
         LD      (IX), HK2V      ;JP(C3) CMD
         LD      HL, PMDHK2
         LD      A, L
-        LD      (IX+1), A       ;PMD88 ADDR REWRITE
+        LD      (IX+1), A       ;PMD88 ADDR WRITE
         LD      A, H
         LD      (IX+2), A
+
+;=================================================
+; INITIALIZE WORK ADDRESS POINTER
 
 INIT:
         LD      HL, WRKADR      ;FM1 LEN WORK ADR
@@ -24,11 +30,34 @@ INIT:
         LD      (WRKPTR2), HL	;WORK PTR 2 SET
         XOR     A               ;INIT A=0 FOR LOOP
 
+;=================================================
+; PROGRAM MAIN LOOP
+
 LOOP:
-        PUSH    AF
         CALL    MUTECHK         ;MUTE/PLAY CH
-        POP     AF
-        CP      6               ;6~8:SSG
+        JP      LOOP
+
+;=================================================
+; SUBROUTINE
+; DISPLAY CHANNEL(FM/SSG/PCM) PARAMETERS
+
+DSPCH:
+        XOR     A
+
+DSPLOOP:
+        CP      0
+        JR      Z, FM
+        CP      1
+        JR      Z, FM
+        CP      2
+        JR      Z, FM
+        CP      3
+        JR      Z, FM
+        CP      4
+        JR      Z, FM
+        CP      5
+        JR      Z, FM
+        CP      6
         JR      Z, SSG
         CP      7
         JR      Z, SSG
@@ -36,17 +65,17 @@ LOOP:
         JR      Z, SSG
         CP      9
         JR      Z, ADPCM        ;9:ADPCM
-        JP      FM              ;0~5:FM
+        RET
 
-        JP      LOOP
 ;=================================================
+
 FM:
         PUSH    AF
         CALL    BTDSP		;LOOP CNT DISP
         CALL    GETFNUM		;FM NOTE DISP
         POP     AF
         INC     A
-        JP      LOOP
+        JP      DSPLOOP
 
 SSG:
         PUSH    AF
@@ -54,13 +83,13 @@ SSG:
 	CALL	GETTONE		;SSG NOTE DISP
         POP     AF
         INC     A
-        JP      LOOP
+        JP      DSPLOOP
 
 ADPCM:
         CALL    BTDSP		;LOOP CNT DISP
 ;       CALL    GETAPCM         ;ADPCM NOTE DISP
-        XOR     A
-        JP      LOOP
+        INC     A
+        JP      DSPLOOP
 
 ;=================================================
 ; HOOK FROM PMD88 VOLUME PUSH CALC SUBROUTINE
@@ -86,12 +115,19 @@ CHKOK:
 	LD	(IX+VOLPUSH), A ;SET VOLPUSH=0
         INC     A               ;??? USE v3.7
 CHKOUT:
-;        XOR     0
-;        LD      (NOWCHMT), A    ;NEXT CH RESET
 	RET
+
 ;=================================================
 ; SUBROUTINE
+; SET MUTE OR PLAY FLAG
 ; OUTPUT: (NOWCHMT)= NOW CH IS MUTE(1) OR PLAY(0)
+;
+; ABOUT MUTE FLAG (DW)
+; xxxx x000 0000 0000
+; ONLY USE BIT0(FM1) ~ BIT10(RHYTHM)
+; x: ALWAYS ZERO
+; 0: PLAY CH
+; 1: MUTE CH
 
 SETMP:
         XOR     A
@@ -118,7 +154,7 @@ SETEND:
 
 ;=================================================
 ; SUBROUTINE
-; CH MUTE
+; EXECUTE TO MINIMUM VOLUME DURING MUTE IS TRUE
 
 CHMUTE:
         LD      A, (SELCH)      ;MUTE CH CHK
@@ -163,184 +199,277 @@ SSGVOL:
 MUCHEND:
         RET
 
+
 ;=================================================
-; ABOUT MUTE FLAG (DW)
-; xxxx x000 0000 0000
-; ONLY USE BIT0(FM1) ~ BIT10(RHYTHM)
-; x: ALWAYS ZERO
-; 0: PLAY CH
-; 1: MUTE CH
+; SUBROUTINE
+; INPUT BY KEYBOARD TO MUTE/PLAY CHANNEL
 
 MUTECHK:
-        XOR     A
+
+        PUSH    BC
+        CALL    DSPCH           ;DISPLAY PARAMETERS
+        POP     BC
+
         PUSH    IY
         LD      IY, MUTEFLG
+
         IN      A, (006H)       ;KBD MATRIX 0~7
         BIT     0, A            ;KEY 0 PUSHED
+        LD      B, 0
         JR      Z, SPLOOP
         BIT     1, A            ;KEY 1 PUSHED
+        LD      B, 1
         JR      Z, SPLOOP
         BIT     2, A            ;KEY 2 PUSHED
+        LD      B, 2
         JR      Z, SPLOOP
         BIT     3, A            ;KEY 3 PUSHED
+        LD      B, 3
         JR      Z, SPLOOP
         BIT     4, A            ;KEY 4 PUSHED
+        LD      B, 4
         JR      Z, SPLOOP
         BIT     5, A            ;KEY 5 PUSHED
+        LD      B, 5
         JR      Z, SPLOOP
         BIT     6, A            ;KEY 6 PUSHED
+        LD      B, 6
         JR      Z, SPLOOP
         BIT     7, A            ;KEY 7 PUSHED
+        LD      B, 7
         JR      Z, SPLOOP
         IN      A, (007H)       ;KBD MATRIX 8,9
         BIT     0, A            ;KEY 8 PUSHED
+        LD      B, 8
         JR      Z, SPLOOP
         BIT     1, A            ;KEY 9 PUSHED
+        LD      B, 9
         JR      Z, SPLOOP
         IN      A, (005H)       ;KBD MATRIX -
         BIT     7, A            ;KEY - PUSHED
+        LD      B, 10
         JR      Z, SPLOOP
-        JP      MPEND
+        POP     IY
+        JP      MUTECHK
 
 SPLOOP:
+        PUSH    BC
+        CALL    DSPCH           ;DISPLAY PARAMETERS
+        POP     BC
+
+        XOR     A
+        CP      B
+        JR      Z, RELKY0       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY1       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY2       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY3       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY4       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY5       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY6       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY7       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY8       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY9       ;RELEASED KEY?
+        INC     A
+        CP      B
+        JR      Z, RELKY10      ;RELEASED KEY?
+        JP      SPLOOP
+
+RELKY0:
         IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     0, A            ;KEY(0):ADPCM
-        JP      Z, ADPCMMP
-        BIT     1, A            ;KEY(1):FM1
-        JP      Z, FM1MP
-        BIT     2, A            ;KEY(2):FM2
-        JP      Z, FM2MP
-        BIT     3, A            ;KEY(3):FM3
-        JP      Z, FM3MP
-        BIT     4, A            ;KEY(4):FM4
-        JP      Z, FM4MP
-        BIT     5, A            ;KEY(5):FM5
-        JP      Z, FM5MP
-        BIT     6, A            ;KEY(6):FM6
-        JP      Z, FM6MP
-        BIT     7, A            ;KEY(7):SSG1
-        JP      Z, SSG1MP
+        BIT     0, A            ;KEY 0 RELEASED
+        JP      NZ, ADPCMMP     ;SET M/P ADPCM
+        JP      SPLOOP
+
+RELKY1:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     1, A            ;KEY 1 RELEASED
+        JP      NZ, FM1MP       ;SET M/P FM1
+        JP      SPLOOP
+
+RELKY2:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     2, A            ;KEY 2 RELEASED
+        JP      NZ, FM2MP       ;SET M/P FM2
+        JP      SPLOOP
+
+RELKY3:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     3, A            ;KEY 3 RELEASED
+        JP      NZ, FM3MP       ;SET M/P FM3
+        JP      SPLOOP
+
+RELKY4:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     4, A            ;KEY 4 RELEASED
+        JP      NZ, FM4MP       ;SET M/P FM4
+        JP      SPLOOP
+
+RELKY5:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     5, A            ;KEY 5 RELEASED
+        JP      NZ, FM5MP       ;SET M/P FM5
+        JP      SPLOOP
+
+RELKY6:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     6, A            ;KEY 6 RELEASED
+        JP      NZ, FM6MP       ;SET M/P FM6
+        JP      SPLOOP
+
+RELKY7:
+        IN      A, (006H)       ;KBD MATRIX 0~7
+        BIT     7, A            ;KEY 7 RELEASED
+        JP      NZ, SSG1MP      ;SET M/P SSG1
+        JP      SPLOOP
+
+RELKY8:
         IN      A, (007H)       ;KBD MATRIX 8,9
-        BIT     0, A            ;KEY(8):SSG2
-        JP      Z, SSG2MP
-        BIT     1, A            ;KEY(9):SSG3
-        JP      Z, SSG3MP
+        BIT     0, A            ;KEY 8 RELEASED
+        JP      NZ, SSG2MP      ;SET M/P SSG2
+        JP      SPLOOP
+
+RELKY9:
+        IN      A, (007H)       ;KBD MATRIX 8,9
+        BIT     1, A            ;KEY 9 RELEASED
+        JP      NZ, SSG3MP     ;SET M/P SSG3
+        JP      SPLOOP
+
+RELKY10:
         IN      A, (005H)       ;KBD MATRIX -
-        BIT     7, A            ;KEY(-):ADPCM
-        JP      Z, RHYMP
-        JP      MPEND
+        BIT     7, A            ;KEY - RELEASED
+        JP      NZ, RHYMP       ;SET M/P RHYTHM
+        JP      SPLOOP
 
 ADPCMMP:
-        BIT     1, (IY+1)
+        BIT     1, (IY+1)       ;SET ADPCM MUTE
         JR      Z, SETMPCM
         RES     1, (IY+1)
         JP      MPEND
 
 SETMPCM:
-        SET     1, (IY+1)
+        SET     1, (IY+1)       ;SET ADPCM PLAY
         JP      MPEND
 
 FM1MP:
-        BIT     0, (IY)
+        BIT     0, (IY)         ;SET FM1 MUTE
         JR      Z, SETMFM1
         RES     0, (IY)
         JP      MPEND
 
 SETMFM1:
-        SET     0, (IY)
+        SET     0, (IY)         ;SET FM1 PLAY
         JP      MPEND
 
 FM2MP:
-        BIT     1, (IY)
+        BIT     1, (IY)         ;SET FM2 MUTE
         JR      Z, SETMFM2
         RES     1, (IY)
         JP      MPEND
 
 SETMFM2:
-        SET     1, (IY)
+        SET     1, (IY)         ;SET FM2 PLAY
         JP      MPEND
 
 FM3MP:
-        BIT     2, (IY)
+        BIT     2, (IY)         ;SET FM3 MUTE
         JR      Z, SETMFM3
         RES     2, (IY)
         JP      MPEND
 
 SETMFM3:
-        SET     2, (IY)
+        SET     2, (IY)         ;SET FM3 PLAY
         JP      MPEND
 
 FM4MP:
-        BIT     3, (IY)
+        BIT     3, (IY)         ;SET FM4 MUTE
         JR      Z, SETMFM4
         RES     3, (IY)
         JP      MPEND
 
 SETMFM4:
-        SET     3, (IY)
+        SET     3, (IY)         ;SET FM4 PLAY
         JP      MPEND
 
 FM5MP:
-        BIT     4, (IY)
+        BIT     4, (IY)         ;SET FM5 MUTE
         JR      Z, SETMFM5
         RES     4, (IY)
         JP      MPEND
 
 SETMFM5:
-        SET     4, (IY)
+        SET     4, (IY)         ;SET FM5 PLAY
         JP      MPEND
 
 FM6MP:
-        BIT     5, (IY)
+        BIT     5, (IY)         ;SET FM6 MUTE
         JR      Z, SETMFM6
         RES     5, (IY)
         JP      MPEND
 
 SETMFM6:
-        SET     5, (IY)
+        SET     5, (IY)         ;SET FM6 PLAY
         JP      MPEND
 
 SSG1MP:
-        BIT     6, (IY)
+        BIT     6, (IY)         ;SET SSG1 MUTE
         JR      Z, SETMSG1
         RES     6, (IY)
         JP      MPEND
 
 SETMSG1:
-        SET     6, (IY)
+        SET     6, (IY)         ;SET SSG1 PLAY
         JP      MPEND
 
 SSG2MP:
-        BIT     7, (IY)
+        BIT     7, (IY)         ;SET SSG2 MUTE
         JR      Z, SETMSG2
         RES     7, (IY)
         JP      MPEND
 
 SETMSG2:
-        SET     7, (IY)
+        SET     7, (IY)         ;SET SSG2 PLAY
         JP      MPEND
 
 SSG3MP:
-        BIT     0, (IY+1)
+        BIT     0, (IY+1)       ;SET SSG3 MUTE
         JR      Z, SETMSG3
         RES     0, (IY+1)
         JP      MPEND
 
 SETMSG3:
-        SET     0, (IY+1)
+        SET     0, (IY+1)       ;SET SSG3 PLAY
         JP      MPEND
 
 RHYMP:
-        BIT     2, (IY+1)
+        BIT     2, (IY+1)       ;SET RHYTHM MUTE
         JR      Z, SETMRHY
         RES     2, (IY+1)
         JP      MPEND
 
 SETMRHY:
-        SET     2, (IY+1)
+        SET     2, (IY+1)       ;SET RHYTHM PLAY
 
 MPEND:
         POP     IY
+;        JP      LOOP
         RET
 
 ;=================================================
@@ -454,6 +583,7 @@ FM6:
 CHEND:
         JP      0AAE2H
 ;=================================================
+
 PTOPDW:
         LD	E, (HL)
 	INC	HL
@@ -524,6 +654,7 @@ RSTWRK2:
         LD      (WRKPTR2), HL	;WORK PTR 2 RESET
 	RET
 ;=================================================
+
 GETFNUM:
         LD      HL, (WRKPTR2)
         LD      E, (HL)
@@ -554,6 +685,7 @@ GETOCT:
         JP      GETNOTE
 
 ;=================================================
+
 GETTONE:
         LD      HL, (WRKPTR2)
         LD      E, (HL)
@@ -614,6 +746,7 @@ SETOCTS:
         JP      NEXIST
 
 ;=================================================
+
 BTDSP:
 	LD	HL, (WRKPTR)
         CALL    PTOPDW          ;(HL)->HL DE:DSTRY
