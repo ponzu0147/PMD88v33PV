@@ -28,7 +28,19 @@ INIT:
         LD      (WRKPTR), HL    ;WORK PTR SET
 	LD	HL, WRKADR2	;FM1 FNUM WORK ADR
         LD      (WRKPTR2), HL	;WORK PTR 2 SET
-        XOR     A               ;INIT A=0 FOR LOOP
+
+ATTINIT:
+        LD      HL, 0F490H      ;2ND LINE ATTR ADDR
+        LD      A, 2
+
+ATTLOOP:
+        LD      (HL), A         ;2,4,6,8,10,...,20
+        INC     A
+        INC     A
+        INC     HL
+        INC     HL
+        CP      22
+        JP      NZ, ATTLOOP
 
 ;=================================================
 ; PROGRAM MAIN LOOP
@@ -63,8 +75,11 @@ DSPLOOP:
         JR      Z, SSG
         CP      8
         JR      Z, SSG
-        CP      9
-        JR      Z, ADPCM        ;9:ADPCM
+; ADPCM, RHYTHM NOTE DISP IS NOT IMPLEMENTED.
+;        CP      9
+;        JR      Z, ADPCM
+;        CP      10
+;        JP      RHYTHM
         RET
 
 ;=================================================
@@ -86,10 +101,15 @@ SSG:
         JP      DSPLOOP
 
 ADPCM:
-        CALL    BTDSP		;LOOP CNT DISP
+        PUSH    AF
+;       CALL    BTDSP		;LOOP CNT DISP
 ;       CALL    GETAPCM         ;ADPCM NOTE DISP
+        POP     AF
         INC     A
         JP      DSPLOOP
+
+RHYTHM:
+;        RET
 
 ;=================================================
 ; HOOK FROM PMD88 VOLUME PUSH CALC SUBROUTINE
@@ -146,7 +166,7 @@ SETLOOP:
 SETCH:
         LD      A, L
         AND     01H             ;BIT0 COMPARE
-        JR      Z, SETEND      ;ZERO IS NORMAL
+        JR      Z, SETEND       ;ZERO IS NORMAL
         LD      (NOWCHMT), A    ;NOW CH MUTE SET
 
 SETEND:
@@ -469,7 +489,6 @@ SETMRHY:
 
 MPEND:
         POP     IY
-;        JP      LOOP
         RET
 
 ;=================================================
@@ -514,9 +533,9 @@ MMHOOK:
         LD      (SELCH), A
         CALL    SETMP           ;NOWCHMT SET
 	LD	IX, 0BEC7H
-	CALL	PCMMAIN		; IN "PCMDRV.MAC"
+	CALL	PCMMAIN		;IN "PCMDRV.MAC"
 
-RHYTHM:
+RHYTHMS:
         LD      A, 10           ;RHYTHM SELECTED
         LD      (SELCH), A
         CALL    SETMP           ;NOWCHMT SET
@@ -746,8 +765,52 @@ SETOCTS:
         JP      NEXIST
 
 ;=================================================
+; SUBROUTINE
+; SET ATTRIBUTE VALUE
+
+SETATTR:
+        LD      HL, (POSNTE)
+        LD      A, L
+        ADD     A, 80+1         ;ATTR VRAM AREA
+        JR      NC, NOINC
+        INC     H
+
+NOINC:
+        LD      L, A
+        RET
+
+;=================================================
+; SUBROUTINE
+; DISPLAY BYTE DATA
 
 BTDSP:
+        LD      HL, (MUTEFLG)   ;MUTEFLG SET
+
+BTLOOP:
+        CP      0
+        JR      Z, ISMP
+        DEC     A
+        SRL     H
+        RR      L
+        JP      BTLOOP
+
+ISMP:
+        LD      A, L
+        AND     01H
+        JP      NZ, ISMUTE
+
+NOTMUTE:
+        CALL    SETATTR
+        LD      A, 0E8H
+        LD      (HL), A         ;WRITE COLOR ATTR SET
+        JP      DRAW
+
+ISMUTE:
+        CALL    SETATTR
+        LD      A, 028H
+        LD      (HL), A         ;BLUE COLOR ATTR SET
+
+DRAW:
 	LD	HL, (WRKPTR)
         CALL    PTOPDW          ;(HL)->HL DE:DSTRY
 	LD	(WRKPTR), HL
@@ -760,11 +823,11 @@ BTDSP:
         RRCA
         RRCA
         AND     00FH            ;UPPER 4BIT
-        CALL    NUMCHK
+        CALL    NUMCHK          ;0~9 or A~F
         LD      (DE),A          ;DISPLAY UPPER
         LD      A, B
         AND     00FH            ;LOWER 4BIT
-        CALL    NUMCHK
+        CALL    NUMCHK          ;0~9 or A~F
         INC     DE
         LD      (DE), A         ;DISPLAY LOWER
 	INC	DE
