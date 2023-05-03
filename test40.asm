@@ -1,4 +1,4 @@
-        ORG     0C800H
+        .ORG     08800H
 
 ;=================================================
 ; PMD88 ORGINAL PROGRAM CODE REWRITE 
@@ -19,6 +19,15 @@ PMD88HK:
         LD      (IX+1), A       ;PMD88 ADDR WRITE
         LD      A, H
         LD      (IX+2), A
+
+        LD      IX, (HK3A)      ;PMD88 VOLPUSHCAL
+        LD      (IX), HK3V      ;JP(C3) CMD
+        LD      HL, MAIN
+        LD      A, L
+        LD      (IX+1), A       ;PMD88 ADDR WRITE
+        LD      A, H
+        LD      (IX+2), A
+
 
 ;=================================================
 ; INITIALIZE WORK ADDRESS POINTER
@@ -42,12 +51,33 @@ ATTLOOP:
         CP      22
         JP      NZ, ATTLOOP
 
-;=================================================
-; PROGRAM MAIN LOOP
+        RET
 
-LOOP:
-        CALL    MUTECHK         ;MUTE/PLAY CH
-        JP      LOOP
+;=================================================
+; PROGRAM MAIN INTERRUPT EXECUTE TO PMD88
+; HOOK FROM PMD88 VRTC HOOK
+; ORG LABEL OF PMD88: VRTCFOOK
+
+; RETURN TO PMD88 BASIC_VRTC JP ADDRESS
+BAVRTC: EQU     0E808H
+
+MAIN:
+        PUSH    AF
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        PUSH    IX
+        PUSH    IY
+        CALL    MUTECHK
+        POP     IY
+        POP     IX
+        POP     HL
+        POP     DE
+        POP     BC
+        LD      A, 5
+        OUT     (0E4h), A
+        POP     AF
+        JP      BAVRTC
 
 ;=================================================
 ; SUBROUTINE
@@ -101,10 +131,10 @@ SSG:
         JP      DSPLOOP
 
 ADPCM:
-        PUSH    AF
+;       PUSH    AF
 ;       CALL    BTDSP		;LOOP CNT DISP
 ;       CALL    GETAPCM         ;ADPCM NOTE DISP
-        POP     AF
+;       POP     AF
         INC     A
         JP      DSPLOOP
 
@@ -270,6 +300,9 @@ MUTECHK:
         LD      B, 10
         JR      Z, SPLOOP
         POP     IY
+        LD      A, 5
+        OUT     (0E4H), A
+        EI
         JP      MUTECHK
 
 SPLOOP:
@@ -310,6 +343,9 @@ SPLOOP:
         INC     A
         CP      B
         JR      Z, RELKY10      ;RELEASED KEY?
+        LD      A, 5
+        OUT     (0E4H), A
+        EI
         JP      SPLOOP
 
 RELKY0:
@@ -787,27 +823,27 @@ BTDSP:
         LD      HL, (MUTEFLG)   ;MUTEFLG SET
 
 BTLOOP:
-        CP      0
+        CP      0               ;A = CURRENT CH
         JR      Z, ISMP
         DEC     A
-        SRL     H
+        SRL     H               ;HL RIGHT SHIFT
         RR      L
         JP      BTLOOP
 
 ISMP:
         LD      A, L
-        AND     01H
+        AND     01H             ;MUTEFLG CHECK
         JP      NZ, ISMUTE
 
 NOTMUTE:
         CALL    SETATTR
-        LD      A, 0E8H
+        LD      A, 0E8H         ;0E8H = WRITE COLOR
         LD      (HL), A         ;WRITE COLOR ATTR SET
         JP      DRAW
 
 ISMUTE:
         CALL    SETATTR
-        LD      A, 028H
+        LD      A, 028H         ;028H = BLUE COLOR
         LD      (HL), A         ;BLUE COLOR ATTR SET
 
 DRAW:
@@ -846,22 +882,22 @@ KONCHK:
 	RET
 
 RSTPOS:
-	LD	HL, 0F3C8H
+	LD	HL, 0F3C8H      ;RST 1ST LINE POS
 	LD	(POSCNT), HL
 
 RSTWRK:
-	LD	HL, WRKADR
+	LD	HL, WRKADR      ;RST WRKADR
 	LD	(WRKPTR), HL
 	RET
 
 NUMCHK:
-        SUB     10
+        SUB     10              ;0~9 CHECK
         JR      NC, ATOF
         ADD     A, '0'+10
         RET
 
 ATOF:
-        ADD     A, 'A'
+        ADD     A, 'A'          ;A-F CHECK
         RET
 
 ;=================================================
@@ -872,6 +908,8 @@ HK1A:   DW      0AA5FH          ;PMD88 SOURCE ADDR
 HK1V:   EQU     0C3H            ;JP COMMAND
 HK2A:   DW      0B9CAH          ;PMD88 SOURCE ADDR
 HK2V:   EQU     0C3H            ;JP COMMAND
+HK3A:   DW      0AA15H          ;PMD88 SOURCE ADDR
+HK3V:   EQU     0C3H            ;JP COMMAND
 VOLFLAG:EQU     0BD43H          ;PMD88 VOLPUSH_FLAG
 PARTB:  EQU     0BD3BH          ;PMD88 PARTB
 PSGMAIN:EQU     0B14FH          ;PMD88 PSGMAIN
@@ -1048,19 +1086,19 @@ OCTDATA:DB      'o1'
 ;===================================================
 ;ALL PART WORKADRESS (SOURCE FROM PMD88v3.7 BY KAJA)
 ;FM/SSG/ADPCM/RHYTHM
-ADDRESS:	EQU	0	; 2 ´Ý¿³Á­³ É ±ÄÞÚ½
-PARTLP: 	EQU	2       ; 2 ´Ý¿³ É ÓÄÞØ»·
-LENG:		EQU	4       ; 1 ÉºØ LENGTH
+ADDRESS:	EQU	0	; 2 ï¿½Ý¿ï¿½ï¿½ï¿½ï¿½ ï¿½ ï¿½ï¿½ï¿½Ú½
+PARTLP: 	EQU	2       ; 2 ï¿½Ý¿ï¿½ ï¿½ ï¿½ï¿½ï¿½Ø»ï¿½
+LENG:		EQU	4       ; 1 Éºï¿½ LENGTH
 
 RHYTHML:        EQU	5
 
 ;FM/SSG/ADPCM
-FNUM:		EQU	5       ; 2 ´Ý¿³Á­³ É BLOCK/FNUM
-DETUNE:		EQU	7       ; 2 ÃÞÁ­°Ý
+FNUM:		EQU	5       ; 2 ï¿½Ý¿ï¿½ï¿½ï¿½ï¿½ ï¿½ BLOCK/FNUM
+DETUNE:		EQU	7       ; 2 ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 LFODAT:		EQU	9       ; 2 LFO DATA
-QDAT:		EQU	11      ; 1 Q É ±À²
+QDAT:		EQU	11      ; 1 Q ï¿½ ï¿½ï¿½ï¿½
 VOLUME:		EQU	12      ; 1 VOLUME
-SHIFT:		EQU	13      ; 1 µÝ¶² ¼ÌÄ É ±À²
+SHIFT:		EQU	13      ; 1 ï¿½Ý¶ï¿½ ï¿½ï¿½ï¿½ ï¿½ ï¿½ï¿½ï¿½
 DELAY:		EQU	14      ; 1 LFO	(DELAY) 
 SPEED:		EQU	15      ; 1	(SPEED)
 STEP:		EQU	16      ; 1	(STEP)
@@ -1092,11 +1130,11 @@ PENV:		EQU	41      ; 1	(VOLUME +-)
 PCMLEN:    	EQU	42
 
 ;FM
-ALGO:		EQU	33      ; 1 ´Ý¿³Á­³ È²Û É ALGO.
-SLOT1:		EQU	34      ; 1 SLOT 1 É TL
-SLOT3:		EQU	35      ; 1 SLOT 3 É TL
-SLOT2:		EQU	36      ; 1 SLOT 2 É TL
-SLOT4:		EQU	37      ; 1 SLOT 4 É TL
+ALGO:		EQU	33      ; 1 ï¿½Ý¿ï¿½ï¿½ï¿½ï¿½ È²ï¿½ ï¿½ ALGO.
+SLOT1:		EQU	34      ; 1 SLOT 1 ï¿½ TL
+SLOT3:		EQU	35      ; 1 SLOT 3 ï¿½ TL
+SLOT2:		EQU	36      ; 1 SLOT 2 ï¿½ TL
+SLOT4:		EQU	37      ; 1 SLOT 4 ï¿½ TL
 FMPAN:		EQU	38	; 1 FM PANNING + AMD + PMD
 
 FMLEN:     	EQU	39
@@ -1105,4 +1143,5 @@ FMLEN:     	EQU	39
 SSGPAT:		EQU	42      ; 1 PSG PATTERN (TONE/NOISE/MIX)
 
 SSGLEN:    	EQU	43
+_end:
 
