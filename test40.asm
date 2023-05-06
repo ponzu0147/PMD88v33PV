@@ -1,45 +1,34 @@
-        .ORG     08800H
+        ORG     08800H
 
 ;=================================================
-; PMD88 ORGINAL PROGRAM CODE REWRITE 
+; PMD88 元のコードを書換えて自プログラムにフックさせる
+; PMD88 v3.3 専用 元は FC88V43 と全く同一のプログラム
 
 PMD88HK:
-        LD      IX, (HK1A)      ;PMD88 PLAY
-        LD      (IX), HK1V      ;JP(C3) CMD
+        LD      A, 0C3H         ;JP命令
+        LD      (0AA5FH), A
         LD      HL, PMDHK1
-        LD      A, L
-        LD      (IX+1), A       ;PMD88 ADDR WRITE
-        LD      A, H
-        LD      (IX+2), A
+        LD      (0AA60H), HL    ;PMDHK1アドレス書込
 
-        LD      IX, (HK2A)      ;PMD88 VOLPUSHCAL
-        LD      (IX), HK2V      ;JP(C3) CMD
+        LD      A, 0C3H         ;JP命令
+        LD      (0B9CAH), A
         LD      HL, PMDHK2
-        LD      A, L
-        LD      (IX+1), A       ;PMD88 ADDR WRITE
-        LD      A, H
-        LD      (IX+2), A
-
-        LD      IX, (HK3A)      ;PMD88 VOLPUSHCAL
-        LD      (IX), HK3V      ;JP(C3) CMD
-        LD      HL, MAIN
-        LD      A, L
-        LD      (IX+1), A       ;PMD88 ADDR WRITE
-        LD      A, H
-        LD      (IX+2), A
-
+        LD      (0B9CBH), HL    ;PMDHK2アドレス書込
 
 ;=================================================
-; INITIALIZE WORK ADDRESS POINTER
+; ワークアドレスのポインタを初期化
 
 INIT:
-        LD      HL, WRKADR      ;FM1 LEN WORK ADR
-        LD      (WRKPTR), HL    ;WORK PTR SET
-	LD	HL, WRKADR2	;FM1 FNUM WORK ADR
-        LD      (WRKPTR2), HL	;WORK PTR 2 SET
+        LD      HL, WRKADR      ;FM1 LENGワークアドレス
+        LD      (WRKPTR), HL    ;WORK PTRをセット
+        LD      HL, WRKADR2     ;FM1 FNUMワークアドレス
+        LD      (WRKPTR2), HL	;WORK PTRをセット
+
+;=================================================
+; テキスト表示（音名を出す際）のアトリビュートを初期化
 
 ATTINIT:
-        LD      HL, 0F490H      ;2ND LINE ATTR ADDR
+        LD      HL, 0F490H      ;2行目アトリビュートアドレス
         LD      A, 2
 
 ATTLOOP:
@@ -51,37 +40,17 @@ ATTLOOP:
         CP      22
         JP      NZ, ATTLOOP
 
-        RET
+;=================================================
+; プログラムメインループ
+
+LOOP:
+        CALL    MUTECHK         ;チャンネルをミュート・再生
+        JP      LOOP
 
 ;=================================================
-; PROGRAM MAIN INTERRUPT EXECUTE TO PMD88
-; HOOK FROM PMD88 VRTC HOOK
-; ORG LABEL OF PMD88: VRTCFOOK
-
-; RETURN TO PMD88 BASIC_VRTC JP ADDRESS
-BAVRTC: EQU     0E808H
-
-MAIN:
-        PUSH    AF
-        PUSH    BC
-        PUSH    DE
-        PUSH    HL
-        PUSH    IX
-        PUSH    IY
-        CALL    MUTECHK
-        POP     IY
-        POP     IX
-        POP     HL
-        POP     DE
-        POP     BC
-        LD      A, 5
-        OUT     (0E4h), A
-        POP     AF
-        JP      BAVRTC
-
-;=================================================
-; SUBROUTINE
-; DISPLAY CHANNEL(FM/SSG/PCM) PARAMETERS
+; サブルーチン
+; 各チャンネルの表示(FM/SSG/PCM)
+; Aレジスタ = 各チャンネル(0〜10)
 
 DSPCH:
         XOR     A
@@ -105,9 +74,9 @@ DSPLOOP:
         JR      Z, SSG
         CP      8
         JR      Z, SSG
-; ADPCM, RHYTHM NOTE DISP IS NOT IMPLEMENTED.
-;        CP      9
-;        JR      Z, ADPCM
+; ADPCM の音名と RHYTHM の種類表示は現在未実装
+        CP      9
+        JR      Z, ADPCM
 ;        CP      10
 ;        JP      RHYTHM
         RET
@@ -116,44 +85,46 @@ DSPLOOP:
 
 FM:
         PUSH    AF
-        CALL    BTDSP		;LOOP CNT DISP
-        CALL    GETFNUM		;FM NOTE DISP
+        CALL    BTDSP		;キーオフカウント表示
+        CALL    GETFNUM		;FM1〜6の音名表示
         POP     AF
         INC     A
         JP      DSPLOOP
 
 SSG:
         PUSH    AF
-        CALL    BTDSP		;LOOP CNT DISP
-	CALL	GETTONE		;SSG NOTE DISP
+        CALL    BTDSP		;キーオフカウント表示
+	CALL	GETTONE		;PSG1〜3の音名表示
         POP     AF
         INC     A
         JP      DSPLOOP
 
 ADPCM:
-;       PUSH    AF
-;       CALL    BTDSP		;LOOP CNT DISP
-;       CALL    GETAPCM         ;ADPCM NOTE DISP
-;       POP     AF
+        PUSH    AF
+        CALL    BTDSP		;キーオフカウント表示
+        CALL    GETAD           ;ADPCMの発音表示
+        POP     AF
         INC     A
-        JP      DSPLOOP
+;        JP      DSPLOOP
+        RET
 
 RHYTHM:
 ;        RET
 
 ;=================================================
-; HOOK FROM PMD88 VOLUME PUSH CALC SUBROUTINE
-; ORG LABEL OF PMD88: VOLPUSH_CAL
+; PMD88のサブルーチン（VOLUME PUSH CALC）をフック
+; PMD88の元ラベル名: VOLPUSH_CAL
 
 PMDHK2:
         LD      A, (NOWCHMT)
         CP      0
+;現在のチャンネルがミュート状態であれば継続させる
         CALL    NZ, CHMUTE
 
-	LD	A, (IX+VOLPUSH) ;VOLPUSH=0 RETURN
+	LD	A, (IX+VOLPUSH) ;VOLPUSH=0で復帰
 	OR	A
 	RET	Z
-	LD	HL, VOLFLAG     ;FROM PMD88
+	LD	HL, VOLFLAG     ;PMD88から
 	DEC	(HL)
 	RET	Z
 	INC	(HL)
@@ -162,52 +133,56 @@ CHKOK:
         CP      0
         JR      NZ, CHKOUT
         XOR     A
-	LD	(IX+VOLPUSH), A ;SET VOLPUSH=0
-        INC     A               ;??? USE v3.7
+	LD	(IX+VOLPUSH), A ;VOLPUSH=0をセット
+;        INC     A               ;v3.7 で使用？
 CHKOUT:
 	RET
 
 ;=================================================
-; SUBROUTINE
-; SET MUTE OR PLAY FLAG
-; OUTPUT: (NOWCHMT)= NOW CH IS MUTE(1) OR PLAY(0)
+; サブルーチン
+; 全チャンネルのミュート・再生のフラグ状態をセットする
+; 出力: (NOWCHMT)= 現在のチャンネルがミュート(1)か
+;       再生(0)かをセットする
 ;
-; ABOUT MUTE FLAG (DW)
+; ミュートフラグ(DW)について
 ; xxxx x000 0000 0000
-; ONLY USE BIT0(FM1) ~ BIT10(RHYTHM)
-; x: ALWAYS ZERO
-; 0: PLAY CH
-; 1: MUTE CH
+; BIT0(FM1) ~ BIT10(RHYTHM)のみ使用
+; x: 常に0（未使用）
+; 0: チャンネルを演奏
+; 1: チャンネルをミュート
 
 SETMP:
         XOR     A
-        LD      (NOWCHMT), A    ;RESET NOWCHMT
+        LD      (NOWCHMT), A    ;NOWCHMTをリセット
         LD      HL, (MUTEFLG)
         LD      A, (SELCH)
 
 SETLOOP:
-        CP      0               ;CMP SELCH VALUE
-        JR      Z, SETCH        ;MUTE? OR PLAY?
-        DEC     A               ;GOTO NEXT CH
+        CP      0               ;SELCHの値を比較
+        JR      Z, SETCH        ;ミュートか再生か
+        DEC     A               ;次のチャンネルへ
         SRL     H               ;HL: MUTEFLG
-        RR      L               ;1BIT RIGHT SHIFT
+        RR      L               ;HLを1ビット右シフト
         JP      SETLOOP
 
 SETCH:
         LD      A, L
-        AND     01H             ;BIT0 COMPARE
-        JR      Z, SETEND       ;ZERO IS NORMAL
-        LD      (NOWCHMT), A    ;NOW CH MUTE SET
+        AND     01H             ;BIT0をチェック
+        JR      Z, SETEND       ;Zなら現チャンネルはミュートではない
+        LD      (NOWCHMT), A    ;現チャンネルのミュート状態を設定
 
 SETEND:
         RET
 
 ;=================================================
-; SUBROUTINE
-; EXECUTE TO MINIMUM VOLUME DURING MUTE IS TRUE
+; サブルーチン
+; ミュート状態のあいだボリュームを最小値にし続ける
+; PMD88の1音だけ音量変更を利用してミュートを実装している
+; 入力: (SELCH)=現在PMD88が再生しているチャンネル(0〜10)
+; 出力: VOLFLAG=1(ミュート状態の場合),0(通常再生の場合)
 
 CHMUTE:
-        LD      A, (SELCH)      ;MUTE CH CHK
+        LD      A, (SELCH)      ;現在の再生チャンネル種別確認
         CP      0               ;FM1
         JR      Z, FMVOL
         CP      1               ;FM2
@@ -227,380 +202,389 @@ CHMUTE:
         CP      8               ;SSG3
         JR      Z, SSGVOL
         CP      9               ;ADPCM
-        JR      Z, SSGVOL
+        JR      Z, PCMVOL
         CP      10              ;RHYTHM
-        JR      Z, SSGVOL
-        JP      MUCHEND
-
-NORVOL:
+        JR      Z, RHYVOL
         JP      MUCHEND
 
 FMVOL:
-        LD      A, 01H          ;FLAG=1 NEXT MUTE
-        LD      (VOLFLAG), A    ;MUTE SET
-        LD      (IX+VOLPUSH), -127;FM MIN VOL
+        LD      A, 01H          ;FLAG=1ならミュート
+        LD      (VOLFLAG), A    ;フラグをミュートに設定(次回継続)
+        LD      (IX+VOLPUSH), -127;最小音量
         JP      MUCHEND
 
 SSGVOL: 
-        LD      A, 01H          ;FLAG=1 NEXT MUTE
-        LD      (VOLFLAG), A    ;MUTE SET
-        LD      (IX+VOLPUSH), -15;SSG MIN VOL
+        LD      A, 01H          ;FLAG=1ならミュート
+        LD      (VOLFLAG), A    ;フラグをミュートに設定(次回継続)
+        LD      (IX+VOLPUSH), -15;最小音量
+        JP      MUCHEND
+
+PCMVOL:
+        LD      A, 01H          ;FLAG=1ならミュート
+        LD      (VOLFLAG), A    ;フラグをミュートに設定(次回継続)
+        LD      (IX+VOLUME), 0;PCM最小音量
+        LD      (IX+VOLPUSH),-127;最小音量
+        JP      MUCHEND
+
+; PMD88にRHYTHMの音量調節用ワークエリアは存在しない
+; 独自に音量を調整する必要がある（未実装）
+RHYVOL:
+        JP      MUCHEND
+
+; CHMUTEで直接MUTEENDにJPした場合はボリューム変更値は0のまま
+; PMD88で自動的に次の音量調整値は0になる
+; VOLFLAGが1にすることで強制的に次の音量調整値もマイナス最大にする
 
 MUCHEND:
         RET
 
-
 ;=================================================
-; SUBROUTINE
-; INPUT BY KEYBOARD TO MUTE/PLAY CHANNEL
+; メインプログラム（サブルーチン）
+; キー入力によりチャンネルごとにミュートと再生を切り替える
+; キーは押した時と話した時でキーマトリクスから判定する
 
 MUTECHK:
 
         PUSH    BC
-        CALL    DSPCH           ;DISPLAY PARAMETERS
+        CALL    DSPCH           ;パラメータ表示
         POP     BC
 
         PUSH    IY
         LD      IY, MUTEFLG
 
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     0, A            ;KEY 0 PUSHED
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     0, A            ;"0"キーが押された
         LD      B, 0
         JR      Z, SPLOOP
-        BIT     1, A            ;KEY 1 PUSHED
+        BIT     1, A            ;"1"キーが押された
         LD      B, 1
         JR      Z, SPLOOP
-        BIT     2, A            ;KEY 2 PUSHED
+        BIT     2, A            ;"2"キーが押された
         LD      B, 2
         JR      Z, SPLOOP
-        BIT     3, A            ;KEY 3 PUSHED
+        BIT     3, A            ;"3"キーが押された
         LD      B, 3
         JR      Z, SPLOOP
-        BIT     4, A            ;KEY 4 PUSHED
+        BIT     4, A            ;"4"キーが押された
         LD      B, 4
         JR      Z, SPLOOP
-        BIT     5, A            ;KEY 5 PUSHED
+        BIT     5, A            ;"5"キーが押された
         LD      B, 5
         JR      Z, SPLOOP
-        BIT     6, A            ;KEY 6 PUSHED
+        BIT     6, A            ;"6"キーが押された
         LD      B, 6
         JR      Z, SPLOOP
-        BIT     7, A            ;KEY 7 PUSHED
+        BIT     7, A            ;"7"キーが押された
         LD      B, 7
         JR      Z, SPLOOP
-        IN      A, (007H)       ;KBD MATRIX 8,9
-        BIT     0, A            ;KEY 8 PUSHED
+        IN      A, (007H)       ;キーマトリクス8,9
+        BIT     0, A            ;"8"キーが押された
         LD      B, 8
         JR      Z, SPLOOP
-        BIT     1, A            ;KEY 9 PUSHED
+        BIT     1, A            ;"9"キーが押された
         LD      B, 9
         JR      Z, SPLOOP
-        IN      A, (005H)       ;KBD MATRIX -
-        BIT     7, A            ;KEY - PUSHED
+        IN      A, (005H)       ;キーマトリクス-
+        BIT     7, A            ;"-"キーが押された
         LD      B, 10
         JR      Z, SPLOOP
         POP     IY
-        LD      A, 5
-        OUT     (0E4H), A
-        EI
         JP      MUTECHK
 
 SPLOOP:
         PUSH    BC
-        CALL    DSPCH           ;DISPLAY PARAMETERS
+        CALL    DSPCH           ;パラメータ表示
         POP     BC
 
         XOR     A
         CP      B
-        JR      Z, RELKY0       ;RELEASED KEY?
+        JR      Z, RELKY0       ;"0"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY1       ;RELEASED KEY?
+        JR      Z, RELKY1       ;"1"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY2       ;RELEASED KEY?
+        JR      Z, RELKY2       ;"2"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY3       ;RELEASED KEY?
+        JR      Z, RELKY3       ;"3"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY4       ;RELEASED KEY?
+        JR      Z, RELKY4       ;"4"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY5       ;RELEASED KEY?
+        JR      Z, RELKY5       ;"5"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY6       ;RELEASED KEY?
+        JR      Z, RELKY6       ;"6"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY7       ;RELEASED KEY?
+        JR      Z, RELKY7       ;"7"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY8       ;RELEASED KEY?
+        JR      Z, RELKY8       ;"8"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY9       ;RELEASED KEY?
+        JR      Z, RELKY9       ;"9"キーが離された？
         INC     A
         CP      B
-        JR      Z, RELKY10      ;RELEASED KEY?
-        LD      A, 5
-        OUT     (0E4H), A
-        EI
+        JR      Z, RELKY10      ;"-"キーが離された？
         JP      SPLOOP
 
 RELKY0:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     0, A            ;KEY 0 RELEASED
-        JP      NZ, ADPCMMP     ;SET M/P ADPCM
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     0, A            ;"0"キーが離された
+        JP      NZ, ADPCMMP     ;ADPCMをミュートor再生
         JP      SPLOOP
 
 RELKY1:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     1, A            ;KEY 1 RELEASED
-        JP      NZ, FM1MP       ;SET M/P FM1
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     1, A            ;"1"キーが離された
+        JP      NZ, FM1MP       ;FM1をミュートor再生
         JP      SPLOOP
 
 RELKY2:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     2, A            ;KEY 2 RELEASED
-        JP      NZ, FM2MP       ;SET M/P FM2
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     2, A            ;"2"キーが離された
+        JP      NZ, FM2MP       ;FM2をミュートor再生
         JP      SPLOOP
 
 RELKY3:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     3, A            ;KEY 3 RELEASED
-        JP      NZ, FM3MP       ;SET M/P FM3
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     3, A            ;"3"キーが離された
+        JP      NZ, FM3MP       ;FM3をミュートor再生
         JP      SPLOOP
 
 RELKY4:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     4, A            ;KEY 4 RELEASED
-        JP      NZ, FM4MP       ;SET M/P FM4
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     4, A            ;"4"キーが離された
+        JP      NZ, FM4MP       ;FM4をミュートor再生
         JP      SPLOOP
 
 RELKY5:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     5, A            ;KEY 5 RELEASED
-        JP      NZ, FM5MP       ;SET M/P FM5
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     5, A            ;"5"キーが離された
+        JP      NZ, FM5MP       ;FM5をミュートor再生
         JP      SPLOOP
 
 RELKY6:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     6, A            ;KEY 6 RELEASED
-        JP      NZ, FM6MP       ;SET M/P FM6
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     6, A            ;"6"キーが離された
+        JP      NZ, FM6MP       ;FM6をミュートor再生
         JP      SPLOOP
 
 RELKY7:
-        IN      A, (006H)       ;KBD MATRIX 0~7
-        BIT     7, A            ;KEY 7 RELEASED
-        JP      NZ, SSG1MP      ;SET M/P SSG1
+        IN      A, (006H)       ;キーマトリクス0〜7
+        BIT     7, A            ;"7"キーが離された
+        JP      NZ, SSG1MP      ;SSG1をミュートor再生
         JP      SPLOOP
 
 RELKY8:
-        IN      A, (007H)       ;KBD MATRIX 8,9
-        BIT     0, A            ;KEY 8 RELEASED
-        JP      NZ, SSG2MP      ;SET M/P SSG2
+        IN      A, (007H)       ;キーマトリクス8,9
+        BIT     0, A            ;"8"キーが離された
+        JP      NZ, SSG2MP      ;SSG2をミュートor再生
         JP      SPLOOP
 
 RELKY9:
-        IN      A, (007H)       ;KBD MATRIX 8,9
-        BIT     1, A            ;KEY 9 RELEASED
-        JP      NZ, SSG3MP     ;SET M/P SSG3
+        IN      A, (007H)       ;キーマトリクス8,9
+        BIT     1, A            ;"9"キーが離された
+        JP      NZ, SSG3MP      ;SSG3をミュートor再生
         JP      SPLOOP
 
 RELKY10:
-        IN      A, (005H)       ;KBD MATRIX -
-        BIT     7, A            ;KEY - RELEASED
-        JP      NZ, RHYMP       ;SET M/P RHYTHM
+        IN      A, (005H)       ;キーマトリクス-
+        BIT     7, A            ;"-"キーが離された
+        JP      NZ, RHYMP       ;RHYTHMをミュートor再生
         JP      SPLOOP
 
 ADPCMMP:
-        BIT     1, (IY+1)       ;SET ADPCM MUTE
+        BIT     1, (IY+1)       ;ADPCMミュート
         JR      Z, SETMPCM
         RES     1, (IY+1)
         JP      MPEND
 
 SETMPCM:
-        SET     1, (IY+1)       ;SET ADPCM PLAY
+        SET     1, (IY+1)       ;ADPCM再生
         JP      MPEND
 
 FM1MP:
-        BIT     0, (IY)         ;SET FM1 MUTE
+        BIT     0, (IY)         ;FM1ミュート
         JR      Z, SETMFM1
         RES     0, (IY)
         JP      MPEND
 
 SETMFM1:
-        SET     0, (IY)         ;SET FM1 PLAY
+        SET     0, (IY)         ;FM1再生
         JP      MPEND
 
 FM2MP:
-        BIT     1, (IY)         ;SET FM2 MUTE
+        BIT     1, (IY)         ;FM2ミュート
         JR      Z, SETMFM2
         RES     1, (IY)
         JP      MPEND
 
 SETMFM2:
-        SET     1, (IY)         ;SET FM2 PLAY
+        SET     1, (IY)         ;FM2再生
         JP      MPEND
 
 FM3MP:
-        BIT     2, (IY)         ;SET FM3 MUTE
+        BIT     2, (IY)         ;FM3ミュート
         JR      Z, SETMFM3
         RES     2, (IY)
         JP      MPEND
 
 SETMFM3:
-        SET     2, (IY)         ;SET FM3 PLAY
+        SET     2, (IY)         ;FM3再生
         JP      MPEND
 
 FM4MP:
-        BIT     3, (IY)         ;SET FM4 MUTE
+        BIT     3, (IY)         ;FM4ミュート
         JR      Z, SETMFM4
         RES     3, (IY)
         JP      MPEND
 
 SETMFM4:
-        SET     3, (IY)         ;SET FM4 PLAY
+        SET     3, (IY)         ;FM4再生
         JP      MPEND
 
 FM5MP:
-        BIT     4, (IY)         ;SET FM5 MUTE
+        BIT     4, (IY)         ;FM5ミュート
         JR      Z, SETMFM5
         RES     4, (IY)
         JP      MPEND
 
 SETMFM5:
-        SET     4, (IY)         ;SET FM5 PLAY
+        SET     4, (IY)         ;FM5再生
         JP      MPEND
 
 FM6MP:
-        BIT     5, (IY)         ;SET FM6 MUTE
+        BIT     5, (IY)         ;FM6ミュート
         JR      Z, SETMFM6
         RES     5, (IY)
         JP      MPEND
 
 SETMFM6:
-        SET     5, (IY)         ;SET FM6 PLAY
+        SET     5, (IY)         ;FM6再生
         JP      MPEND
 
 SSG1MP:
-        BIT     6, (IY)         ;SET SSG1 MUTE
+        BIT     6, (IY)         ;SSG1ミュート
         JR      Z, SETMSG1
         RES     6, (IY)
         JP      MPEND
 
 SETMSG1:
-        SET     6, (IY)         ;SET SSG1 PLAY
+        SET     6, (IY)         ;SSG1再生
         JP      MPEND
 
 SSG2MP:
-        BIT     7, (IY)         ;SET SSG2 MUTE
+        BIT     7, (IY)         ;SSG2ミュート
         JR      Z, SETMSG2
         RES     7, (IY)
         JP      MPEND
 
 SETMSG2:
-        SET     7, (IY)         ;SET SSG2 PLAY
+        SET     7, (IY)         ;SSG2再生
         JP      MPEND
 
 SSG3MP:
-        BIT     0, (IY+1)       ;SET SSG3 MUTE
+        BIT     0, (IY+1)       ;SSG3ミュート
         JR      Z, SETMSG3
         RES     0, (IY+1)
         JP      MPEND
 
 SETMSG3:
-        SET     0, (IY+1)       ;SET SSG3 PLAY
+        SET     0, (IY+1)       ;SSG3再生
         JP      MPEND
 
 RHYMP:
-        BIT     2, (IY+1)       ;SET RHYTHM MUTE
+        BIT     2, (IY+1)       ;RHYTHMミュート
         JR      Z, SETMRHY
         RES     2, (IY+1)
         JP      MPEND
 
 SETMRHY:
-        SET     2, (IY+1)       ;SET RHYTHM PLAY
+        SET     2, (IY+1)       ;RHYTHM再生
 
 MPEND:
         POP     IY
         RET
 
 ;=================================================
-; HOOK FROM PMD88 MUSIC PLAYER MAIN ROUTINE
-; ORG LABEL OF PMD88: mmain_opm
-; A: PMD88 PLAY CHANNEL DETECTION
-
+; PMD88音楽再生メインルーチンをフック
+; 元のラベル名: mmain_opm
+; Aレジスタ: PMD88での再生チャンネルを指定
+; IXレジスタ: 各チャンネルのPMD88ワークエリアアドレス
+; (SELCH): サブルーチンに現在の再生チャンネルを連携
 PMDHK1:
         LD      A, (0BD42H)
 	OR	A
 	JR	NZ, MMHOOK
 
 SSG1:
-        LD      A, 6            ;SSG1 SELECTED
+        LD      A, 6            ;SSG1を選択
         LD      (SELCH), A
 	LD	IX, 0BE46H
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 1
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 SSG2:
-        LD      A, 7            ;SSG2 SELECTED
+        LD      A, 7            ;SSG2を選択
         LD      (SELCH), A
 	LD	IX, 0BE71H
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 2
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 SSG3:
-        LD      A, 8            ;SSG3 SELECTED
+        LD      A, 8            ;SSG3を選択
         LD      (SELCH), A
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	IX, 0BE9CH
 	LD	A, 3
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 MMHOOK:
-        LD      A, 9            ;ADPCM SELECTED
+        LD      A, 9            ;ADPCMを選択
         LD      (SELCH), A
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	IX, 0BEC7H
 	CALL	PCMMAIN		;IN "PCMDRV.MAC"
 
 RHYTHMS:
-        LD      A, 10           ;RHYTHM SELECTED
+        LD      A, 10           ;RHYTHMを選択
         LD      (SELCH), A
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	IX, 0BEF1H
 	CALL	RHYMAIN
 
 FM1:
-        LD      A, 0            ;FM1 SELECTED
+        LD      A, 0            ;FM1を選択
         LD      (SELCH), A
 	LD	IX, 0BD5CH
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 1
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM2:
-        LD      A, 1            ;FM2 SELECTED
+        LD      A, 1            ;FM2を選択
         LD      (SELCH), A
 	LD	IX, 0BD83H
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 2
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM3:
-        LD      A, 2            ;FM3 SELECTED
+        LD      A, 2            ;FM3を選択
         LD      (SELCH), A
 	LD	IX, 0BDAAH
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 3
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -609,28 +593,28 @@ CSEL46:
 	CALL	SEL46
 
 FM4:
-        LD      A, 3            ;FM4 SELECTED
+        LD      A, 3            ;FM4を選択
         LD      (SELCH), A
 	LD	IX, 0BDD1H
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 1
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM5:
-        LD      A, 4            ;FM5 SELECTED
+        LD      A, 4            ;FM5を選択
         LD      (SELCH), A
 	LD	IX, 0BDF8H
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 2
 	LD	(PARTB),A
 	CALL	FMMAIN
 
 FM6:
-        LD      A, 5            ;FM6 SELECTED
+        LD      A, 5            ;FM6を選択
         LD      (SELCH), A
 	LD	IX, 0BE1FH
-        CALL    SETMP           ;NOWCHMT SET
+        CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 3
 	LD	(PARTB),A
 	CALL	FMMAIN
@@ -638,6 +622,10 @@ FM6:
 CHEND:
         JP      0AAE2H
 ;=================================================
+; サブルーチン
+; DW用間接アドレッシング
+; 入力: HL=アドレス
+; 出力: HL=HL+2, DE=(HL)
 
 PTOPDW:
         LD	E, (HL)
@@ -646,47 +634,56 @@ PTOPDW:
 	INC	HL
         RET
 
-GETNOTE:
-	PUSH	DE
-        CALL    PTOPDW          ;(HL)->DE.HL+=2
-	LD	(FNMPTR), HL
-	EX	DE, HL		;HL:COMPARE NOTE
-	POP	DE		;DE:CUR NOTE
-        AND     A               ;CARRY RESET
-        SBC     HL, DE
-	LD	HL, (FNMPTR)
-        JR      Z, NEXIST
-        DJNZ    GETNOTE
+;=================================================
+; ワークエリアの音名データと音名テーブルを比較して音名を取得する
 
+GETNOTE:
+	PUSH	DE              ;現在の音名を保存
+        CALL    PTOPDW          ;(HL)->DE,HL+=2（次のワークポインタに移動）
+	LD	(FNMPTR), HL    ;ワークポインタを更新
+	EX	DE, HL		;HL:比較用音名
+	POP	DE		;DE:現在の音名
+        AND     A               ;Cフラグリセット
+        SBC     HL, DE          ;HL=DEのチェック
+	LD	HL, (FNMPTR)    ;ワークポインタの値をHLレジスタに復元
+        JR      Z, NEXIST       ;HL=DEなら音名が一致した
+        DJNZ    GETNOTE         ;Bレジスタ=音名分(12)の減算カウンタ
+
+; 音名が見つからない場合は音名に空白文字を使用する
 NZERO:
-        LD      HL, SPNOTE
+        LD      HL, SPNOTE      ;半角スペース2文字をHLレジスタに設定
         LD      (NOTEPTR), HL
-	LD	B, 0
+	LD	B, 0            ;Bレジスタ操作の用途不明（要調査）
         JP      WDSP
 
+; 音名が見つかった
 NEXIST:
-        LD      HL, NOTE
+        LD      HL, NOTE        ;"C "を初期値で設定
         LD      A, 12
         SUB     B
-        JR      Z, SKIPLP       ;B=0 HIT & SKIP
+        JR      Z, SKIPLP       ;最初でマッチした場合はスキップ
         SLA     A
         LD      B, A
+
 EXISTLP:
-	INC     HL
+	INC     HL              ;次の音名をセット
 	DJNZ    EXISTLP
+
+; 最初の"C "でマッチしたのでワークポインタに値を設定する
 SKIPLP:
 	LD	(NOTEPTR), HL
 
+; 2バイト(DW)データを2行目に出力させる
 WDSP:
-        LD      DE, (POSNTE)	;NOTE DISP POS
-	LD	HL, (NOTEPTR)
-        LDI                     ;DISPLAY UPPER
-        LDI                     ;DISPLAY LOWER
-        LD      (POSNTE), DE
+        LD      DE, (POSNTE)	;音名出力位置指定
+	LD	HL, (NOTEPTR)   ;音名用ワークポインタ
+        LDI                     ;1文字目を表示
+        LDI                     ;2文字目を表示
+        LD      (POSNTE), DE    ;DE+2させた次の位置を保存
 
 NOTECHK:
         PUSH    BC
-        LD      BC, 0F452H      ;FM,SSG 18BYTE
+        LD      BC, 0F454H      ;FM,SSG,ADPCM 20バイト分
         PUSH    DE              ;DE ADDR CHECK
         EX      DE, HL          ;DE->HL
         AND     A               ;RESET C FLAG
@@ -708,33 +705,64 @@ RSTWRK2:
 	LD	HL, WRKADR2	;FM1 FNUM WORK ADR
         LD      (WRKPTR2), HL	;WORK PTR 2 RESET
 	RET
-;=================================================
 
-GETFNUM:
-        LD      HL, (WRKPTR2)
+;=================================================
+; サブルーチン
+; ADPCMが鳴っているかはPMD88のワークエリアから取得する
+; BECCH〜BECDHに値が入っている時が鳴っている
+
+GETAD:
+        LD      HL, (WRKPTR2)   ;ADPCMのワークエリアを記録
         LD      E, (HL)
         INC     HL
-        LD      D, (HL)		;FNUM:LWR 11BIT
+        LD      D, (HL)
 	EX	DE, HL
 	LD	E, (HL)
 	INC	HL
 	LD	D, (HL)
 	LD	(FNMTMP), HL
+        LD      A, E            ;下位8bitが0は存在しない
+        AND     A
+        JP      Z, NZERO        ;ADPCMは00(音名なし)
+
+; ADPCMのサンプリングにオクターブは関係がないので取得をしない
+; 全てのNOTEは"AD"と表示する
+
+        LD      HL, ADNOTE      ;"AD"をHLレジスタに設定
+        LD      (NOTEPTR), HL
+	LD	B, 0            ;Bレジスタ操作の用途不明（要調査）
+        JP      WDSP
+
+;=================================================
+; サブルーチン
+; FNUMの値(11ビット)をPMD88のワークエリアから取得する
+; FNUMはFM1〜6で使われている
+
+GETFNUM:
+        LD      HL, (WRKPTR2)
+        LD      E, (HL)
+        INC     HL
+        LD      D, (HL)		;FNUM:下位8bit+上位3bit
+	EX	DE, HL          ;レジスタ交換して戻す
+	LD	E, (HL)
+	INC	HL
+	LD	D, (HL)
+	LD	(FNMTMP), HL    ;FNMTMPに現在のFNUM値が入る
 GETOCT:
 	LD	A, D
+        RRCA                    ;上位8bitのうち上位5bit必要
         RRCA
-        RRCA
-        RRCA
-        AND     07H
-        LD      (OCTAVE), A     ;GET OCT NUM
+        RRCA                    ;右シフトで3bit詰める
+        AND     07H             ;5bit中3bit必要
+        LD      (OCTAVE), A     ;オクターブを取得
         LD      A, D
-        AND     07H             ;UPR 5BIT CUT
+        AND     07H             ;FNUM上位3bit確認
         LD      D, A
-        LD      A, E		;LWR 8BIT 0 CHK
+        LD      A, E		;下位8bitが0のFNUMは存在しない
         AND     A
-        JR      Z, NZERO
+        JP      Z, NZERO        ;FNUMは00(音名なし)
 
-        LD      B, 12           ;DEC CNT TO 0
+        LD      B, 12           ;1オクターブ(12)分の減算カウント
         LD      HL, FNUMBER
 	LD	(FNMPTR), HL
         JP      GETNOTE
@@ -745,17 +773,17 @@ GETTONE:
         LD      HL, (WRKPTR2)
         LD      E, (HL)
         INC     HL
-        LD      D, (HL)		;TONE:LWR 12BIT
+        LD      D, (HL)		;TONEは上位4bit+下位8bit
 	EX	DE, HL
 	LD	E, (HL)
 	INC	HL
 	LD	D, (HL)
 	LD	(FNMTMP), HL
-        LD      A, E            ;LWR 8BIT 0 CHK
+        LD      A, E            ;下位8bitが0のTONEな存在しない
         AND     A
         JP      Z, NZERO
 
-        XOR     A               ;INC CNT TO 96
+        XOR     A               ;加算カウンタをセット(0〜96)
         LD      HL, SSGTP
 	LD	(FNMPTR), HL
 
@@ -901,15 +929,9 @@ ATOF:
         RET
 
 ;=================================================
-;WORK AREA
+; ワークエリア
 
-SELCH:  DB      0               ;PMD88 SELECTED CH
-HK1A:   DW      0AA5FH          ;PMD88 SOURCE ADDR
-HK1V:   EQU     0C3H            ;JP COMMAND
-HK2A:   DW      0B9CAH          ;PMD88 SOURCE ADDR
-HK2V:   EQU     0C3H            ;JP COMMAND
-HK3A:   DW      0AA15H          ;PMD88 SOURCE ADDR
-HK3V:   EQU     0C3H            ;JP COMMAND
+SELCH:  DB      0               ;PMD88 現在選択中チャンネル
 VOLFLAG:EQU     0BD43H          ;PMD88 VOLPUSH_FLAG
 PARTB:  EQU     0BD3BH          ;PMD88 PARTB
 PSGMAIN:EQU     0B14FH          ;PMD88 PSGMAIN
@@ -949,6 +971,7 @@ WRKADR2:DW      0BD61H          ;FM1
         DW      0BE4BH          ;SSG1
         DW      0BE76H          ;SSG2
         DW      0BEA1H          ;SSG3
+        DW      0BECCH          ;ADPCM
 
 FNUMBER:DW      618             ;C
         DW      655             ;C+
@@ -1060,6 +1083,7 @@ SSGTP:  DW      3816            ;OCT1 C
         DW      16              ;OCT8 A+
         DW      15              ;OCT8 B
 
+ADNOTE: DB      'AD'
 SPNOTE: DB      '  '
 NOTE:   DB      'C '
         DB      'C+'
@@ -1084,21 +1108,21 @@ OCTDATA:DB      'o1'
         DB      'o8'
 
 ;===================================================
-;ALL PART WORKADRESS (SOURCE FROM PMD88v3.7 BY KAJA)
+; ワークアドレス (PMD88v3.7のソースより BY KAJA)
 ;FM/SSG/ADPCM/RHYTHM
-ADDRESS:	EQU	0	; 2 �ݿ���� � ���ڽ
-PARTLP: 	EQU	2       ; 2 �ݿ� � ���ػ�
-LENG:		EQU	4       ; 1 ɺ� LENGTH
+ADDRESS:	EQU	0	; 2 演奏中のアドレス
+PARTLP: 	EQU	2       ; 2 演奏の戻り先
+LENG:		EQU	4       ; 1 残り LENGTH
 
 RHYTHML:        EQU	5
 
 ;FM/SSG/ADPCM
-FNUM:		EQU	5       ; 2 �ݿ���� � BLOCK/FNUM
-DETUNE:		EQU	7       ; 2 ������
+FNUM:		EQU	5       ; 2 演奏中の BLOCK/FNUM
+DETUNE:		EQU	7       ; 2 デチューン
 LFODAT:		EQU	9       ; 2 LFO DATA
-QDAT:		EQU	11      ; 1 Q � ���
+QDAT:		EQU	11      ; 1 Q の値
 VOLUME:		EQU	12      ; 1 VOLUME
-SHIFT:		EQU	13      ; 1 �ݶ� ��� � ���
+SHIFT:		EQU	13      ; 1 音階シフトの値
 DELAY:		EQU	14      ; 1 LFO	(DELAY) 
 SPEED:		EQU	15      ; 1	(SPEED)
 STEP:		EQU	16      ; 1	(STEP)
@@ -1130,11 +1154,11 @@ PENV:		EQU	41      ; 1	(VOLUME +-)
 PCMLEN:    	EQU	42
 
 ;FM
-ALGO:		EQU	33      ; 1 �ݿ���� Ȳ� � ALGO.
-SLOT1:		EQU	34      ; 1 SLOT 1 � TL
-SLOT3:		EQU	35      ; 1 SLOT 3 � TL
-SLOT2:		EQU	36      ; 1 SLOT 2 � TL
-SLOT4:		EQU	37      ; 1 SLOT 4 � TL
+ALGO:		EQU	33      ; 1 演奏中の音色の ALGO.
+SLOT1:		EQU	34      ; 1 SLOT 1 の TL
+SLOT3:		EQU	35      ; 1 SLOT 3 の TL
+SLOT2:		EQU	36      ; 1 SLOT 2 の TL
+SLOT4:		EQU	37      ; 1 SLOT 4 の TL
 FMPAN:		EQU	38	; 1 FM PANNING + AMD + PMD
 
 FMLEN:     	EQU	39
@@ -1143,5 +1167,3 @@ FMLEN:     	EQU	39
 SSGPAT:		EQU	42      ; 1 PSG PATTERN (TONE/NOISE/MIX)
 
 SSGLEN:    	EQU	43
-_end:
-
