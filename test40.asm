@@ -74,9 +74,9 @@ DSPLOOP:
         JR      Z, SSG
         CP      8
         JR      Z, SSG
-; ADPCM の音名と RHYTHM の種類表示は現在未実装
         CP      9
         JR      Z, ADPCM
+; RHYTHM の種類表示は現在未実装
 ;        CP      10
 ;        JP      RHYTHM
         RET
@@ -222,8 +222,7 @@ SSGVOL:
 PCMVOL:
         LD      A, 01H          ;FLAG=1ならミュート
         LD      (VOLFLAG), A    ;フラグをミュートに設定(次回継続)
-        LD      (IX+VOLUME), 0;PCM最小音量
-        LD      (IX+VOLPUSH),-127;最小音量
+        LD      (IX+VOLPUSH),-255;最小音量
         JP      MUCHEND
 
 ; PMD88にRHYTHMの音量調節用ワークエリアは存在しない
@@ -231,11 +230,12 @@ PCMVOL:
 RHYVOL:
         JP      MUCHEND
 
-; CHMUTEで直接MUTEENDにJPした場合はボリューム変更値は0のまま
+; CHMUTEで直接MUCHENDにJPした場合はボリューム変更値は0のまま
 ; PMD88で自動的に次の音量調整値は0になる
 ; VOLFLAGが1にすることで強制的に次の音量調整値もマイナス最大にする
 
 MUCHEND:
+       
         RET
 
 ;=================================================
@@ -932,6 +932,7 @@ ATOF:
 ; ワークエリア
 
 SELCH:  DB      0               ;PMD88 現在選択中チャンネル
+PCMFLAG:EQU     0AA1EH          ;PMD88 PCMFLAG
 VOLFLAG:EQU     0BD43H          ;PMD88 VOLPUSH_FLAG
 PARTB:  EQU     0BD3BH          ;PMD88 PARTB
 PSGMAIN:EQU     0B14FH          ;PMD88 PSGMAIN
