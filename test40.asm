@@ -228,9 +228,17 @@ PCMVOL:
 ; PMD88にRHYTHMの音量調節用ワークエリアは存在しない
 ; 独自に音量を調整する必要がある（未実装）
 RHYVOL:
+        LD      A, (NOWCHMT)
+        AND     A
+        JR      NZ, MUCHEND
         JP      MUCHEND
+        LD      A, 10
+        LD      H, A
+        XOR     A
+        LD      L, A
+        OUT     (44H), A
 
-; CHMUTEで直接MUCHENDにJPした場合はボリューム変更値は0のまま
+; CHMUTEで直接MUTEENDにJPした場合はボリューム変更値は0のまま
 ; PMD88で自動的に次の音量調整値は0になる
 ; VOLFLAGが1にすることで強制的に次の音量調整値もマイナス最大にする
 
@@ -559,6 +567,22 @@ RHYTHMS:
         LD      A, 10           ;RHYTHMを選択
         LD      (SELCH), A
         CALL    SETMP           ;NOWCHMTを設定
+        PUSH    AF
+        LD      A, (NOWCHMT)
+        AND     A
+        JP      Z, RHYPLAY
+        XOR     A
+        LD      C, 011H
+        CALL    OUT45
+        JP      PLAYRHY
+
+RHYPLAY:
+        LD      A, 63
+        LD      C, 011H
+        CALL    OUT45
+
+PLAYRHY:
+        POP     AF
 	LD	IX, 0BEF1H
 	CALL	RHYMAIN
 
@@ -621,6 +645,29 @@ FM6:
 
 CHEND:
         JP      0AAE2H
+;=================================================
+; サブルーチン
+; リズム音源の制御
+; 
+
+OUT45:
+        PUSH    AF
+O45P0:
+        IN      A, (044H)
+        RLCA
+        JR      C, O45P0
+        LD      A, C
+
+O45P1:
+        OUT     (044H), A
+        LD      A, (0)
+        POP     AF
+
+O45P2:
+        OUT     (045H), A
+        RET
+
+
 ;=================================================
 ; サブルーチン
 ; DW用間接アドレッシング
