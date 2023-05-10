@@ -15,6 +15,11 @@ PMD88HK:
         LD      HL, PMDHK2
         LD      (0B9CBH), HL    ;PMDHK2アドレス書込
 
+        LD      A, 0C3H         ;JP命令
+        LD      (0B70EH), A
+        LD      HL, PMDHK3
+        LD      (0B70FH), HL    ;PMDHK2アドレス書込
+
 ;=================================================
 ; ワークアドレスのポインタを初期化
 
@@ -44,8 +49,76 @@ ATTLOOP:
 ; プログラムメインループ
 
 LOOP:
-        CALL    MUTECHK         ;チャンネルをミュート・再生
+        CALL    MUTECHK         ;チャンネルミュート・再生
         JP      LOOP
+
+;=================================================
+; サブルーチン
+; 現在表示されているリズム音源の各音色を一定時間経過後に
+; キーオフ（非表示）する
+
+RHYKYOF:
+        PUSH    AF
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        LD      HL, RHYTMR      ;タイマーを順に確認
+        XOR     A               ;A=0初期化(6までカウント)
+
+RHYKYLP:
+        PUSH    AF              ;後続処理のためカウント退避
+        LD      A, (HL)         ;タイマーの数値をAレジスタにセット
+        SUB     1
+        JR      Z, INITTM       ;0になったら非表示・初期化へ
+        LD      (HL),A
+        INC     HL              ;次のタイマーへ
+        POP     AF              ;Aレジスタ復元
+        INC     A               ;カウント加算
+        CP      6               ;カウントが6まで来たら終了
+        JR      Z, ENDTM
+        JP      RHYKYLP
+
+INITTM:
+        POP     AF              ;カウント用のAを復帰
+        LD      (HL), INITTMV   ;タイマー用初期値に変更
+        CALL    UNDSPM          ;非表示サブルーチンへ
+        CP      6
+        JR      Z,ENDTM
+        JP      RHYKYLP
+
+ENDTM:
+        POP     HL
+        POP     DE
+        POP     BC
+        POP     AF
+        RET
+
+;=================================================
+; サブルーチン
+; タイマーが0になったリズム音源の音色を非表示にする
+; 入力: Aレジスタ=非表示にする音色のオフセットアドレス
+
+UNDSPM:
+        PUSH    AF
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+
+        LD      HL, (POSRHY2)   ;表示位置の読み出し
+        LD      B, 0
+        ADD     A               ;アドレスはDWなのでAを2倍にする
+        LD      C, A            ;CにAの値をセット
+        ADD     HL, BC          ;アドレスにオフセット値を加算
+        EX      DE, HL          ;HL->DEに移す
+        LD      HL, SPNOTE      ;HLには空白文字2つをセット
+        LDI                     ;1文字目を表示
+        LDI                     ;2文字目を表示
+
+        POP     HL
+        POP     DE
+        POP     BC
+        POP     AF
+        RET
 
 ;=================================================
 ; サブルーチン
@@ -76,7 +149,7 @@ DSPLOOP:
         JR      Z, SSG
         CP      9
         JR      Z, ADPCM
-; RHYTHM の種類表示は現在未実装
+; RHYTHM の種類表示は別のルーチンにて実装
 ;        CP      10
 ;        JP      RHYTHM
         RET
@@ -108,8 +181,100 @@ ADPCM:
 ;        JP      DSPLOOP
         RET
 
-RHYTHM:
+; RHYTHM:
 ;        RET
+
+;=================================================
+; PMD88のサブルーチン（OPNSET44）へのコール直前をフック
+; PMD88の元ラベル名: RHYSET
+;
+; リズム音源の鳴っている音色を判定する
+
+PMDHK3:
+        PUSH    AF              ;各種レジスタ保存
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+        LD      A, D            ;OPNA音源レジスタCH取得
+        CP      10H             ;アドレスが一致しているか
+;レジスタCHが10H以外のデータは処理せず抜けさせる
+        JP      NZ, HK3RT
+        CALL    RHYDSP          ;音色表示サブルーチン
+
+HK3RT:
+        POP     HL              ;各種レジスタ復帰
+        POP     DE
+        POP     BC
+        POP     AF
+
+        CALL    0BCA4H          ;元々呼んだサブルーチンへ
+	JP      0B711H          ;CALLの直後に戻る
+
+;=================================================
+; サブルーチン
+; BIT5〜0までを判定して鳴っているか消えているかを表示する
+; 入力: Eレジスタ(RHYTHMレジスタ書き込みデータ)
+
+RHYDSP:
+        LD      A, E
+        LD      B, 6            ;音色は6種類
+        RLCA
+        LD      DE, (POSRHY)
+        LD      HL, RHYDATA     ;状態確認した音色を選択
+
+        JP      C, WDSP3        ;消音処理へ
+        AND     A               ;Cフラグクリア
+
+; 発音処理 6種類の音色ごとに鳴りはじめを判定して表示
+WDSP2:
+        AND     A               ;フラグリセット
+        BIT     6, A            ;BIT5→左シフトしたのでBIT6の状態を確認
+        JP      Z, NORHY        ;1なら発音している
+
+WDSP22:
+        LDI                     ;1文字目を表示
+        LDI                     ;2文字目を表示
+
+WDSP222:
+        RLCA                    ;左シフトして次の準備順に調べる
+        DJNZ    WDSP2           ;全音色分処理を繰り返す
+        JP      RSTPOS3         ;全部終わったら終了
+
+NORHY:
+        INC     DE
+        INC     DE
+        INC     HL
+        INC     HL
+        JP      WDSP222
+
+RSTPOS3:
+        LD      DE, (POSRHY)    ;POSNTEの先頭アドレス
+        JP      PRHY
+
+WDSP3:
+        AND     A               ;フラグリセット
+        BIT     6, A
+        JP      Z, NORHY3
+        LD      HL, SPNOTE
+
+WDSP33:
+        LDI                     ;1文字目を表示
+        LDI                     ;2文字目を表示
+
+WDSP333:
+        RLCA                    ;左シフトして次の準備順に調べる
+        DJNZ    WDSP3           ;全音色分処理を繰り返す
+        JP      RSTPOS3         ;全部終わったら終了
+
+NORHY3:
+        INC     DE
+        INC     DE
+        INC     HL
+        INC     HL
+        JP      WDSP333
+
+PRHY:
+        RET
 
 ;=================================================
 ; PMD88のサブルーチン（VOLUME PUSH CALC）をフック
@@ -226,17 +391,9 @@ PCMVOL:
         JP      MUCHEND
 
 ; PMD88にRHYTHMの音量調節用ワークエリアは存在しない
-; 独自に音量を調整する必要がある（未実装）
+; PMD88のRHYTHM演奏ルーチン内で音量調整の実装をした
 RHYVOL:
-        LD      A, (NOWCHMT)
-        AND     A
-        JR      NZ, MUCHEND
         JP      MUCHEND
-        LD      A, 10
-        LD      H, A
-        XOR     A
-        LD      L, A
-        OUT     (44H), A
 
 ; CHMUTEで直接MUTEENDにJPした場合はボリューム変更値は0のまま
 ; PMD88で自動的に次の音量調整値は0になる
@@ -252,6 +409,8 @@ MUCHEND:
 ; キーは押した時と話した時でキーマトリクスから判定する
 
 MUTECHK:
+
+        CALL    RHYKYOF         ;リズム音源キーオフ用タイマー
 
         PUSH    BC
         CALL    DSPCH           ;パラメータ表示
@@ -525,14 +684,14 @@ MPEND:
 ; IXレジスタ: 各チャンネルのPMD88ワークエリアアドレス
 ; (SELCH): サブルーチンに現在の再生チャンネルを連携
 PMDHK1:
-        LD      A, (0BD42H)
+        LD      A, (0BD42H)     ;x68_flag判定(詳細不明)
 	OR	A
 	JR	NZ, MMHOOK
 
 SSG1:
         LD      A, 6            ;SSG1を選択
-        LD      (SELCH), A
-	LD	IX, 0BE46H
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BE46H      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 1
 	LD	(PARTB),A
@@ -540,8 +699,8 @@ SSG1:
 
 SSG2:
         LD      A, 7            ;SSG2を選択
-        LD      (SELCH), A
-	LD	IX, 0BE71H
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BE71H      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 2
 	LD	(PARTB),A
@@ -549,47 +708,47 @@ SSG2:
 
 SSG3:
         LD      A, 8            ;SSG3を選択
-        LD      (SELCH), A
+        LD      (SELCH), A      ;演奏中のチャンネル
         CALL    SETMP           ;NOWCHMTを設定
-	LD	IX, 0BE9CH
+	LD	IX, 0BE9CH      ;ワークエリアの指定
 	LD	A, 3
 	LD	(PARTB),A
 	CALL	PSGMAIN
 
 MMHOOK:
         LD      A, 9            ;ADPCMを選択
-        LD      (SELCH), A
+        LD      (SELCH), A      ;演奏中のチャンネル
         CALL    SETMP           ;NOWCHMTを設定
-	LD	IX, 0BEC7H
+	LD	IX, 0BEC7H      ;ワークエリアの指定
 	CALL	PCMMAIN		;IN "PCMDRV.MAC"
 
 RHYTHMS:
         LD      A, 10           ;RHYTHMを選択
-        LD      (SELCH), A
+        LD      (SELCH), A      ;演奏中のチャンネル
         CALL    SETMP           ;NOWCHMTを設定
         PUSH    AF
-        LD      A, (NOWCHMT)
+        LD      A, (NOWCHMT)    ;リズムがミュート・再生かチェック
         AND     A
         JP      Z, RHYPLAY
-        XOR     A
-        LD      C, 011H
-        CALL    OUT45
+        XOR     A               ;ミュートなら最小音量にセット
+        LD      C, 011H         ;OPNA音源 レジスタCH
+        CALL    OUT45           ;書き込み
         JP      PLAYRHY
 
 RHYPLAY:
-        LD      A, 63
-        LD      C, 011H
-        CALL    OUT45
+        LD      A, (0BCFH)      ;リズムトータルレベル(rhyvol)を取得
+        LD      C, 011H         ;OPNA音源 レジスタCH
+        CALL    OUT45           ;書き込み
 
 PLAYRHY:
-        POP     AF
-	LD	IX, 0BEF1H
+        POP     AF              ;Aレジスタ復元
+	LD	IX, 0BEF1H      ;ワークエリアの指定
 	CALL	RHYMAIN
 
 FM1:
         LD      A, 0            ;FM1を選択
-        LD      (SELCH), A
-	LD	IX, 0BD5CH
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BD5CH      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 1
 	LD	(PARTB),A
@@ -597,8 +756,8 @@ FM1:
 
 FM2:
         LD      A, 1            ;FM2を選択
-        LD      (SELCH), A
-	LD	IX, 0BD83H
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BD83H      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 2
 	LD	(PARTB),A
@@ -606,8 +765,8 @@ FM2:
 
 FM3:
         LD      A, 2            ;FM3を選択
-        LD      (SELCH), A
-	LD	IX, 0BDAAH
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BDAAH      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 3
 	LD	(PARTB),A
@@ -618,8 +777,8 @@ CSEL46:
 
 FM4:
         LD      A, 3            ;FM4を選択
-        LD      (SELCH), A
-	LD	IX, 0BDD1H
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BDD1H      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 1
 	LD	(PARTB),A
@@ -627,8 +786,8 @@ FM4:
 
 FM5:
         LD      A, 4            ;FM5を選択
-        LD      (SELCH), A
-	LD	IX, 0BDF8H
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BDF8H      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 2
 	LD	(PARTB),A
@@ -636,8 +795,8 @@ FM5:
 
 FM6:
         LD      A, 5            ;FM6を選択
-        LD      (SELCH), A
-	LD	IX, 0BE1FH
+        LD      (SELCH), A      ;演奏中のチャンネル
+	LD	IX, 0BE1FH      ;ワークエリアの指定
         CALL    SETMP           ;NOWCHMTを設定
 	LD	A, 3
 	LD	(PARTB),A
@@ -647,7 +806,7 @@ CHEND:
         JP      0AAE2H
 ;=================================================
 ; サブルーチン
-; リズム音源の制御
+; リズム音源のトータルボリューム制御用
 ; 
 
 OUT45:
@@ -659,8 +818,8 @@ O45P0:
         LD      A, C
 
 O45P1:
-        OUT     (044H), A
-        LD      A, (0)
+        OUT     (044H), A       ;Cレジスタの内容を044Hへ
+        LD      A, (0)          ;ウェイト用
         POP     AF
 
 O45P2:
@@ -990,14 +1149,18 @@ SEL46:  EQU     0B0A8H          ;PMD88 SEL46
 HK1RT:  EQU     0AAE2H          ;RETURN ADDR
 WRKPTR: DW      0
 WRKPTR2:DW      0
+WRKPTR3:DW      0
 FNMPTR: DW      0
 FNMTMP:	DW      0
 NOTEPTR:DW      0
+RHYPTR: DW      0
 OCTAVE: DB      0
-POSCNT: DW      0F3C8H          ;DISPLAY COUNTER POS
-POSNTE: DW      0F440H          ;DISPLAY NOTE POS
-MUTEFLG:DW      0               ;PLAY(0)/MUTE(1) 11CH
-NOWCHMT:DB      0               ;PLAYING CH IS MUTE?
+POSCNT: DW      0F3C8H          ;キーオンカウント表示位置
+POSNTE: DW      0F440H          ;音名表示位置
+POSRHY: DW      0F4B8H          ;リズム表示位置
+POSRHY2:DW      0F4B8H          ;
+MUTEFLG:DW      0               ;PLAY(0)/MUTE(1) 11CH分
+NOWCHMT:DB      0               ;演奏中のチャンネルがミュート・再生か
 
 WRKADR: DW      0BD60H          ;FM1
         DW      0BD87H          ;FM2
@@ -1154,6 +1317,24 @@ OCTDATA:DB      'o1'
         DB      'o6'
         DB      'o7'
         DB      'o8'
+
+RHYDATA:DB      'RM'            ;BIT5
+        DB      'TM'            ;BIT4
+        DB      'HH'            ;BIT3
+        DB      'CY'            ;BIT2
+        DB      'SD'            ;BIT1
+        DB      'BD'            ;BIT0
+
+INITTMV:EQU     50
+
+; キーオフタイマー
+RHYTMR: DB      INITTMV*3       ;BIT5 リムショット
+        DB      INITTMV*3       ;BIT4 タムタム
+        DB      INITTMV*3       ;BIT3 ハイハット
+        DB      INITTMV*4       ;BIT2 シンバル
+        DB      INITTMV*2        ;BIT1 スネア
+        DB      INITTMV*3       ;BIT0 バスドラ
+
 
 ;===================================================
 ; ワークアドレス (PMD88v3.7のソースより BY KAJA)
