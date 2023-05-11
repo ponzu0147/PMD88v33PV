@@ -45,6 +45,11 @@ ATTLOOP:
         CP      22
         JP      NZ, ATTLOOP
 
+ATTRHY:
+        LD      HL, 0F508H      ;3行目アトリビュートアドレス
+        LD      A, 12           ;12文字分一括で設定する
+        LD      (HL), A
+
 ;=================================================
 ; プログラムメインループ
 
@@ -149,9 +154,8 @@ DSPLOOP:
         JR      Z, SSG
         CP      9
         JR      Z, ADPCM
-; RHYTHM の種類表示は別のルーチンにて実装
-;        CP      10
-;        JP      RHYTHM
+        CP      10
+        JP      RHYTHM
         RET
 
 ;=================================================
@@ -178,11 +182,55 @@ ADPCM:
         CALL    GETAD           ;ADPCMの発音表示
         POP     AF
         INC     A
-;        JP      DSPLOOP
+        JP      DSPLOOP
+
+RHYTHM:
+        PUSH    AF
+        CALL    MUPLRHY         ;RHYTHMチャンネルの文字色変更
+        POP     AF
         RET
 
-; RHYTHM:
-;        RET
+
+;=================================================
+; サブルーチン
+; リズムチャンネルのミュート・再生状態に応じて文字色を変更する
+
+MUPLRHY:
+
+        LD      HL, (MUTEFLG)   ;ミュートフラグの状態をHLレジスタにセット
+        LD      A, H            ;HレジスタをAレジスタにセット
+        AND     04H             ;リズムチャンネルだけを取り出し
+        JP      NZ, RYMUTE      ;フラグが1ならミュート
+
+RNTMUTE:
+        CALL    SETATT2         ;HLのアドレスにアトリビュートエリアを設定
+        LD      A, 0E8H         ;0E8H = 白色
+        LD      (HL), A         ;白色を設定
+        JP      BYEBYE
+
+RYMUTE:
+        CALL    SETATT2         ;HLのアドレスにアトリビュートエリアを設定
+        LD      A, 028H         ;028H = 青色
+        LD      (HL), A         ;青色を設定
+
+BYEBYE:
+       RET
+
+;=================================================
+; サブルーチン
+; リズム音源の各音色表示のアトリビュート設定
+; 出力: HL=アトリビュートエリア属性値変更アドレス
+
+SETATT2:
+        LD      HL, (POSRHY2)
+        LD      A, L
+        ADD     A, 80+1         ;アトリビュートエリア+1
+        JR      NC, NOINC2      ;繰り上がり判定
+        INC     H               ;繰り上がり分を加算
+
+NOINC2:
+        LD      L, A
+        RET
 
 ;=================================================
 ; PMD88のサブルーチン（OPNSET44）へのコール直前をフック
@@ -234,6 +282,13 @@ WDSP2:
 WDSP22:
         LDI                     ;1文字目を表示
         LDI                     ;2文字目を表示
+        PUSH    AF
+        PUSH    BC
+        LD      A, 6            ;RESETKOの引数(Aレジスタ)をセット
+        SUB     B               ;現在のBからA=6-BとなるようAをセット
+        CALL    RESETKO         ;リズム音源のキーオフタイマーをリセット
+        POP     BC
+        POP     AF
 
 WDSP222:
         RLCA                    ;左シフトして次の準備順に調べる
@@ -274,6 +329,27 @@ NORHY3:
         JP      WDSP333
 
 PRHY:
+        RET
+
+;=================================================
+; サブルーチン
+; キーオンのタイミングでキーオフカウンターの初期化を行う
+
+RESETKO:
+        PUSH    AF
+        PUSH    BC
+        PUSH    HL
+
+        LD      HL, RHYTMR
+        LD      B, 0
+        LD      C, A
+        ADD     HL, BC
+        LD      (HL), INITTMV
+
+        POP     HL              ;各種レジスタ復帰
+        POP     BC
+        POP     AF
+
         RET
 
 ;=================================================
@@ -406,7 +482,7 @@ MUCHEND:
 ;=================================================
 ; メインプログラム（サブルーチン）
 ; キー入力によりチャンネルごとにミュートと再生を切り替える
-; キーは押した時と話した時でキーマトリクスから判定する
+; キーは押した時と離した時でキーマトリクスから判定する
 
 MUTECHK:
 
@@ -890,26 +966,26 @@ WDSP:
 NOTECHK:
         PUSH    BC
         LD      BC, 0F454H      ;FM,SSG,ADPCM 20バイト分
-        PUSH    DE              ;DE ADDR CHECK
-        EX      DE, HL          ;DE->HL
-        AND     A               ;RESET C FLAG
-        SBC     HL, BC
+        PUSH    DE              ;DEのアドレスチェック
+        EX      DE, HL          ;DEからHLにデータをセット
+        AND     A               ;Cフラグをリセット
+        SBC     HL, BC          ;現在のアドレスと終端アドレスを比較
         POP     DE
         POP     BC
-        JR      Z, RSTPOS2
-	LD	HL, (WRKPTR2)
+        JR      Z, RSTPOS2      ;同じであれば位置をリセット
+	LD	HL, (WRKPTR2)   ;現在のワークポインタのアドレスをHLレジスタにセット
+	INC	HL              ;アドレスを2加算して
 	INC	HL
-	INC	HL
-	LD	(WRKPTR2), HL
+	LD	(WRKPTR2), HL   ;アドレスをワークアドレスに戻す
         RET
 
 RSTPOS2:
-        LD      HL, 0F440H      ;POSNTE FIRST ADR
-        LD      (POSNTE), HL    ;POSNTE RESET
+        LD      HL, 0F440H      ;POSNTEの最初のアドレスをセットして
+        LD      (POSNTE), HL    ;音名の表示位置をリセットするをリセットする
 
 RSTWRK2:
-	LD	HL, WRKADR2	;FM1 FNUM WORK ADR
-        LD      (WRKPTR2), HL	;WORK PTR 2 RESET
+	LD	HL, WRKADR2	;FM1 FNUMの最初のワークアドレスをセットして
+        LD      (WRKPTR2), HL	;ワークポインタをリセットする
 	RET
 
 ;=================================================
@@ -976,15 +1052,15 @@ GETOCT:
 ;=================================================
 
 GETTONE:
-        LD      HL, (WRKPTR2)
-        LD      E, (HL)
+        LD      HL, (WRKPTR2)   ;SSG音名のワークポインタをセット
+        LD      E, (HL)         ;DEにワークポインタのアドレスが指す値をセット
         INC     HL
-        LD      D, (HL)		;TONEは上位4bit+下位8bit
+        LD      D, (HL)		;TONEは上位4bit+下位8bitの12bit必要
 	EX	DE, HL
 	LD	E, (HL)
 	INC	HL
 	LD	D, (HL)
-	LD	(FNMTMP), HL
+	LD	(FNMTMP), HL    
         LD      A, E            ;下位8bitが0のTONEな存在しない
         AND     A
         JP      Z, NZERO
@@ -995,143 +1071,144 @@ GETTONE:
 
 GETNTES:
 	PUSH	DE
-        CALL    PTOPDW          ;(HL)->DE
-	LD	(FNMPTR), HL
-	EX	DE, HL		;HL:CMP NOTE
-	POP	DE		;DE:CUR NOTE
-        AND     A               ;RESET C FLAG
-        SBC     HL, DE
+        CALL    PTOPDW          ;(HL)->DE,HL+=2をする
+	LD	(FNMPTR), HL    ;
+	EX	DE, HL		;HLは比較する音名の数値
+	POP	DE		;DEは現在取得した音名の数値
+        AND     A               ;Cフラグをリセット
+        SBC     HL, DE          ;HLとDEを比較
 	LD	HL, (FNMPTR)
-        JP      Z, NEXISTS
-        INC     A
-        CP      96
-        JR      NZ, GETNTES
-        JP      NZERO
+        JP      Z, NEXISTS      ;HLとDEが同じならTONEの音名が特定
+        INC     A               ;音名カウンタを加算
+        CP      96              ;96まで来たかチェック
+        JR      NZ, GETNTES     ;まだであれば繰り返し
+        JP      NZERO           ;96までに特定できなければ音名は無し
 
 NEXISTS:
-        LD      B,0
+        LD      B,0             ;オクターブ用カウンタ初期化
 DIV12:
-        SUB     12
-        JR      C, MINUS
-        JR      Z, ZEROS
-        INC     B
-        JP      DIV12
+        SUB     12              ;Aから12引く
+        JR      C, MINUS        ;Cフラグ立てば12より少ない
+        JR      Z, ZEROS        ;Zフラグ立てばちょうど0=空白
+        INC     B               ;12より大きければ1オクターブ加算
+        JP      DIV12           ;繰り返し
 
 MINUS:
-        ADD     A, 12
-        JP      SETOCTS
+        ADD     A, 12           ;一旦引いた12を足して
+        JP      SETOCTS         ;オクターブセットへ分岐
 
 ZEROS:
-        LD      A, B
-        CP      0
-        JP      Z, NZERO
+        LD      A, B            ;オクターブ情報をAレジスタにせっと
+        CP      0               ;0かチェックして
+        JP      Z, NZERO        ;0ならばそれは空白、それ以外ならオクターブ有り
 
 SETOCTS:
         PUSH    AF
-        LD      A, B            ;B:OCTAVE(0~7)
-        LD      (OCTAVE), A     
-        POP     AF              ;A:NOTE(0~11)
-        LD      B, A            ;NEXIST NEEDS NOTE
-        JP      NEXIST
+        LD      A, B            ;B:オクターブ(0~7)
+        LD      (OCTAVE), A     ;現在のオクターブ情報をセット
+        POP     AF              ;A:現在の音名(0~11)
+        LD      B, A            ;音名がある場合Bレジスタに音名データをセット
+        JP      NEXIST          ;音名
 
 ;=================================================
-; SUBROUTINE
-; SET ATTRIBUTE VALUE
+; サブルーチン
+; 音名表示のアトリビュート設定
+; 出力: HL=アトリビュートエリア属性値変更アドレス
 
 SETATTR:
         LD      HL, (POSNTE)
         LD      A, L
-        ADD     A, 80+1         ;ATTR VRAM AREA
-        JR      NC, NOINC
-        INC     H
+        ADD     A, 80+1         ;アトリビュートエリア+1
+        JR      NC, NOINC       ;繰り上がり判定
+        INC     H               ;繰り上がり分を加算
 
 NOINC:
-        LD      L, A
+        LD      L, A            ;(繰り上がらない場合そのまま)Lレジスタにセット
         RET
 
 ;=================================================
-; SUBROUTINE
-; DISPLAY BYTE DATA
+; サブルーチン
+; 1/2行目のDBデータを1文字ずつ表示させる
 
 BTDSP:
-        LD      HL, (MUTEFLG)   ;MUTEFLG SET
+        LD      HL, (MUTEFLG)   ;全チャンネルのミュートフラグをHLレジスタにセット
 
 BTLOOP:
-        CP      0               ;A = CURRENT CH
-        JR      Z, ISMP
-        DEC     A
-        SRL     H               ;HL RIGHT SHIFT
-        RR      L
+        CP      0               ;A = 現在の演奏チャンネル用カウンタをチェック
+        JR      Z, ISMP         ;0ならミュートフラグのチェックへ
+        DEC     A               ;Aを減算
+        SRL     H               ;HLを左シフト
+        RR      L               ;LレジスタのBIT0に次チャンネルのフラグをセット
         JP      BTLOOP
 
 ISMP:
-        LD      A, L
-        AND     01H             ;MUTEFLG CHECK
-        JP      NZ, ISMUTE
+        LD      A, L            ;LレジスタをAレジスタにセット
+        AND     01H             ;現在の演奏チャンネルがミュートか調べる
+        JP      NZ, ISMUTE      ;フラグが1ならミュート
 
 NOTMUTE:
-        CALL    SETATTR
-        LD      A, 0E8H         ;0E8H = WRITE COLOR
-        LD      (HL), A         ;WRITE COLOR ATTR SET
+        CALL    SETATTR         ;HLのアドレスにアトリビュートエリアを設定
+        LD      A, 0E8H         ;0E8H = 白色
+        LD      (HL), A         ;白色を設定
         JP      DRAW
 
 ISMUTE:
-        CALL    SETATTR
-        LD      A, 028H         ;028H = BLUE COLOR
-        LD      (HL), A         ;BLUE COLOR ATTR SET
+        CALL    SETATTR         ;HLのアドレスにアトリビュートエリアを設定
+        LD      A, 028H         ;028H = 青色
+        LD      (HL), A         ;青色を設定
 
 DRAW:
-	LD	HL, (WRKPTR)
-        CALL    PTOPDW          ;(HL)->HL DE:DSTRY
-	LD	(WRKPTR), HL
-	EX	DE, HL
-        LD      DE, (POSCNT)    ;LPCNT DISP POS
+	LD	HL, (WRKPTR)    ;現在のワークポインタのアドレスをHLにセット
+        CALL    PTOPDW          ;HL=HL+2, DE=(HL)するサブルーチンを使用する
+	LD	(WRKPTR), HL    ;次のアドレスをワークポインタに保存
+	EX	DE, HL          ;DEのアドレスをHLに移動
+        LD      DE, (POSCNT)    ;DEにキーオンカウントの表示位置を指定
         LD      A, (HL)
-        LD      B, A
-        RRCA                    ;4BIT RIGHT SHIFT
+        LD      B, A            ;2文字分のデータをBレジスタに一時退避
+        RRCA                    ;4BIT分の右シフトを行う
         RRCA
         RRCA
         RRCA
-        AND     00FH            ;UPPER 4BIT
-        CALL    NUMCHK          ;0~9 or A~F
-        LD      (DE),A          ;DISPLAY UPPER
-        LD      A, B
-        AND     00FH            ;LOWER 4BIT
-        CALL    NUMCHK          ;0~9 or A~F
-        INC     DE
-        LD      (DE), A         ;DISPLAY LOWER
-	INC	DE
-	LD	(POSCNT), DE
+        AND     00FH            ;上位4BITの値を取得
+        CALL    NUMCHK          ;文字が0~9かA~Fかで処理を替えて
+        LD      (DE),A          ;上位ビットを画面に表示する
+        LD      A, B            ;退避させたデータを再びAレジスタにセット
+        AND     00FH            ;下位4BITの値を取得
+        CALL    NUMCHK          ;文字が0~9かA~Fかで処理を替えて
+        INC     DE              ;表示位置を1つ右へずらして
+        LD      (DE), A         ;下位ビットを画面に表示する
+	INC	DE              ;次の表示のため1つ右にずらしておく
+	LD	(POSCNT), DE    ;その座標をPOSCNTに保存する
 
 KONCHK:
-	PUSH	BC
-	LD	BC, 0F3DCH	;ALL PART 10CH
-	PUSH	DE
+	PUSH	BC              ;BCレジスタを退避させる
+	LD	BC, 0F3DCH	;10CH表示させた後の表示位置アドレス
+	PUSH	DE              
 	EX	DE, HL
-	AND	A
-	SBC	HL, BC
-	POP	DE
+	AND	A               ;Cフラグをリセット
+	SBC	HL, BC          ;現在のアドレス-最終CH表示後アドレス
+	POP	DE              ;退避レジスタを復帰
 	POP	BC
-	JR	Z, RSTPOS
-	RET
+	JR	Z, RSTPOS       ;最終CH表示後アドレスなら表示位置をリセット
+	RET                     ;まだ大丈夫ならこのCALLから復帰させる
 
 RSTPOS:
-	LD	HL, 0F3C8H      ;RST 1ST LINE POS
+	LD	HL, 0F3C8H      ;1行目の表示位置をリセット
 	LD	(POSCNT), HL
 
 RSTWRK:
-	LD	HL, WRKADR      ;RST WRKADR
+	LD	HL, WRKADR      ;ワークアドレスのリセット
 	LD	(WRKPTR), HL
 	RET
 
 NUMCHK:
-        SUB     10              ;0~9 CHECK
-        JR      NC, ATOF
-        ADD     A, '0'+10
+        SUB     10              ;0~9かをチェック
+        JR      NC, ATOF        ;Cフラグで判断する
+        ADD     A, '0'+10       ;最初に10だけ引いたので元に戻す
         RET
 
 ATOF:
-        ADD     A, 'A'          ;A-F CHECK
+        ADD     A, 'A'          ;A-Fの場合Aの値に'A'だけ加算するとA~Fで表示される
         RET
 
 ;=================================================
@@ -1325,15 +1402,15 @@ RHYDATA:DB      'RM'            ;BIT5
         DB      'SD'            ;BIT1
         DB      'BD'            ;BIT0
 
-INITTMV:EQU     50
+INITTMV:EQU     80
 
 ; キーオフタイマー
-RHYTMR: DB      INITTMV*3       ;BIT5 リムショット
-        DB      INITTMV*3       ;BIT4 タムタム
-        DB      INITTMV*3       ;BIT3 ハイハット
-        DB      INITTMV*4       ;BIT2 シンバル
-        DB      INITTMV*2        ;BIT1 スネア
-        DB      INITTMV*3       ;BIT0 バスドラ
+RHYTMR: DB      INITTMV         ;BIT5 リムショット
+        DB      INITTMV         ;BIT4 タムタム
+        DB      INITTMV         ;BIT3 ハイハット
+        DB      INITTMV         ;BIT2 シンバル
+        DB      INITTMV         ;BIT1 スネア
+        DB      INITTMV         ;BIT0 バスドラ
 
 
 ;===================================================
