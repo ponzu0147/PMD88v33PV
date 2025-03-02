@@ -479,6 +479,14 @@ PCMVOL:
 ; PMD88にRHYTHMの音量調節用ワークエリアは存在しない
 ; PMD88のRHYTHM演奏ルーチン内で音量調整の実装をした
 RHYVOL:
+        LD      A, 01H          ;FLAG=1ならミュート
+        LD      (VOLFLAG), A    ;フラグをミュートに設定(次回継続)
+        LD      A, (0BCFH)      ;現在のリズム音量を取得
+        LD      (RHYVTMP), A    ;一時保存
+        XOR     A               ;A=0 (最小音量)
+        LD      (0BCFH), A      ;リズム音量を0に設定
+        LD      C, 011H         ;OPNA音源 レジスタCH
+        CALL    OUT45           ;書き込み
         JP      MUCHEND
 
 ; CHMUTEで直接MUTEENDにJPした場合はボリューム変更値は0のまま
@@ -653,11 +661,17 @@ RELKY10:
 ADPCMMP:
         BIT     1, (IY+1)       ;ADPCMミュート
         JR      Z, SETMPCM
-        RES     1, (IY+1)
+        RES     1, (IY+1)       ;ミュート解除
+        XOR     A               ;A=0
+        LD      (VOLFLAG), A    ;フラグを通常再生に設定
         JP      MPEND
 
 SETMPCM:
-        SET     1, (IY+1)       ;ADPCM再生
+        SET     1, (IY+1)       ;ADPCMミュート設定
+        LD      A, 01H          ;FLAG=1ならミュート
+        LD      (VOLFLAG), A    ;フラグをミュートに設定
+        LD      IX, 0BEC7H      ;ADPCMのワークエリアを指定
+        LD      (IX+VOLPUSH), -255 ;ADPCMの音量を最小に
         JP      MPEND
 
 FM1MP:
@@ -805,8 +819,25 @@ MMHOOK:
         LD      A, 9            ;ADPCMを選択
         LD      (SELCH), A      ;演奏中のチャンネル
         CALL    SETMP           ;NOWCHMTを設定
-	LD	IX, 0BEC7H      ;ワークエリアの指定
-	CALL	PCMMAIN		;IN "PCMDRV.MAC"
+        LD      IX, 0BEC7H      ;ワークエリアの指定
+        LD      A, (NOWCHMT)    ;ADPCMがミュート・再生かチェック
+        AND     A
+        JP      NZ, ADPCMMUTE   ;ミュートならミュート処理へ
+        LD      A, (VOLFLAG)    ;前回のフラグ状態をチェック
+        AND     A
+        JP      NZ, ADPCMSKIP   ;前回ミュートなら今回はスキップ
+        CALL    PCMMAIN         ;通常再生
+        JP      RHYTHMS
+
+ADPCMMUTE:
+        LD      (IX+VOLPUSH), -255 ;ADPCMの音量を最小に
+        CALL    PCMMAIN         ;ミュート時も再生処理を呼び出して音名データを更新（音は出ない）
+        JP      RHYTHMS
+
+ADPCMSKIP:
+        XOR     A               ;A=0
+        LD      (VOLFLAG), A    ;次回から通常再生
+        JP      RHYTHMS
 
 RHYTHMS:
         LD      A, 10           ;RHYTHMを選択
@@ -815,8 +846,10 @@ RHYTHMS:
         PUSH    AF
         LD      A, (NOWCHMT)    ;リズムがミュート・再生かチェック
         AND     A
-        JP      Z, RHYPLAY
-        XOR     A               ;ミュートなら最小音量にセット
+        JP      Z, RHYPLAY      ;ミュートでなければ通常再生
+        LD      A, (RHYVTMP)    ;保存していた音量を取得
+        LD      (0BCFH), A      ;リズム音量を設定
+        XOR     A               ;A=0 (最小音量)
         LD      C, 011H         ;OPNA音源 レジスタCH
         CALL    OUT45           ;書き込み
         JP      PLAYRHY
@@ -828,8 +861,8 @@ RHYPLAY:
 
 PLAYRHY:
         POP     AF              ;Aレジスタ復元
-	LD	IX, 0BEF1H      ;ワークエリアの指定
-	CALL	RHYMAIN
+        LD      IX, 0BEF1H      ;ワークエリアの指定
+        CALL    RHYMAIN
 
 FM1:
         LD      A, 0            ;FM1を選択
@@ -1483,3 +1516,6 @@ FMLEN:     	EQU	39
 SSGPAT:		EQU	42      ; 1 PSG PATTERN (TONE/NOISE/MIX)
 
 SSGLEN:    	EQU	43
+
+; リズム音源の音量一時保存用
+RHYVTMP: DB      0
