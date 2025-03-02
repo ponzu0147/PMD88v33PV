@@ -420,9 +420,14 @@ SETEND:
 ; ミュート状態のあいだボリュームを最小値にし続ける
 ; PMD88の1音だけ音量変更を利用してミュートを実装している
 ; 入力: (SELCH)=現在PMD88が再生しているチャンネル(0〜10)
+;       (MUTEFLG)=ミュート状態フラグ(1=ミュート, 0=通常再生)
 ; 出力: VOLFLAG=1(ミュート状態の場合),0(通常再生の場合)
 
 CHMUTE:
+        LD      A, (MUTEFLG)    ;ミュート状態確認
+        OR      A               ;フラグが0かチェック
+        JP      Z, UNMUTE       ;0なら通常再生処理へ
+
         LD      A, (SELCH)      ;現在の再生チャンネル種別確認
         CP      0               ;FM1
         JR      Z, FMVOL
@@ -451,8 +456,13 @@ CHMUTE:
 FMVOL:
         LD      A, 01H          ;FLAG=1ならミュート
         LD      (VOLFLAG), A    ;フラグをミュートに設定(次回継続)
-        LD      (IX+VOLPUSH), -127;最小音量
+        LD      (IX+VOLPUSH), -63 ;FM音量を最小値に（PMD88の音量範囲は0-63）
         JP      MUCHEND
+
+UNMUTE:
+        XOR     A               ;A=0
+        LD      (VOLFLAG), A    ;フラグを通常再生に設定
+        JP      MUCHEND        ;音量変更せずに終了
 
 SSGVOL: 
         LD      A, 01H          ;FLAG=1ならミュート
