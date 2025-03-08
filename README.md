@@ -1,5 +1,4 @@
-# PMD88v33PV
-# PMD88 Custom Hook Program
+# PMD88v33PV（PMD88 Custom Hook Program)
 
 ## 概要
 このプロジェクトは、PMD88 V3.3専用のカスタムフックプログラムです。PMD88単体に対して特定の機能を追加しています。このプログラムは、音楽再生やリズム音源の制御を行うためのアセンブリ言語で書かれています。
