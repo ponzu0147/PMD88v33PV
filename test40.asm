@@ -32,6 +32,13 @@ INIT:
         LD      (RHYTVOL), A    ; トータルボリューム初期化
         LD      C, 011H
         CALL    OUT45           ; OPNAに反映
+        
+        ; キー状態の初期化
+        LD      A, 0FFH         ; 全ビット1（キー押されていない状態）
+        LD      (KEY_STATE), A  ; ポート5の状態
+        LD      (KEY_STATE+1), A ; ポート6の状態
+        LD      (KEY_STATE+2), A ; ポート7の状態
+        LD      (KEY_STATE+3), A ; ポート4の状態（^キー用）
 
 ;=================================================
 ; テキスト表示（音名を出す際）のアトリビュートを初期化
@@ -471,277 +478,246 @@ MUCHEND:
 ; キー入力によりチャンネルごとにミュートと再生を切り替える
 
 MUTECHK:
-        CALL    RHYKYOF
+        CALL    RHYKYOF         ; リズム音源の表示タイマー処理
 
         PUSH    BC
-        CALL    DSPCH
+        CALL    DSPCH           ; 各チャンネルの表示処理
         POP     BC
 
         PUSH    IY
         LD      IY, MUTEFLG
 
-        IN      A, (006H)
-        BIT     0, A
-        LD      B, 0
-        JR      Z, SPLOOP
-        BIT     1, A
-        LD      B, 1
-        JR      Z, SPLOOP
-        BIT     2, A
-        LD      B, 2
-        JR      Z, SPLOOP
-        BIT     3, A
-        LD      B, 3
-        JR      Z, SPLOOP
-        BIT     4, A
-        LD      B, 4
-        JR      Z, SPLOOP
-        BIT     5, A
-        LD      B, 5
-        JR      Z, SPLOOP
-        BIT     6, A
-        LD      B, 6
-        JR      Z, SPLOOP
-        BIT     7, A
-        LD      B, 7
-        JR      Z, SPLOOP
-        IN      A, (007H)
-        BIT     0, A
-        LD      B, 8
-        JR      Z, SPLOOP
-        BIT     1, A
-        LD      B, 9
-        JR      Z, SPLOOP
-        IN      A, (005H)
-        BIT     7, A
-        LD      B, 10
-        JR      Z, SPLOOP
+        ; ポート5（^キーとリズム）の状態チェック
+        IN      A, (005H)       ; 現在のキー状態を読み込み
+        LD      C, A            ; 現在の状態を保存
+        LD      A, (KEY_STATE)  ; 前回の状態を取得
+        
+        ; ^キー（BIT6）のチェック
+        LD      B, A            ; 前回の状態を保存
+        AND     40H             ; BIT6だけを見る（^キー）
+        LD      D, A            ; 前回の^キー状態を保存
+        LD      A, C            ; 現在の状態を復帰
+        AND     40H             ; BIT6だけを見る
+        CP      D               ; 前回と比較
+        JR      Z, CHECK_RHYTHM ; 変化なしなら次へ
+        LD      A, C            ; 現在の状態を復帰
+        LD      (KEY_STATE), A  ; 状態を更新
+        BIT     6, A            ; キーが離されたか（1=離された）
+        JR      NZ, CHECK_RHYTHM; 押されたままなら次へ
+        CALL    ALL_MUTE        ; 全音ミュート処理
+
+CHECK_RHYTHM:
+        ; リズムキー（BIT7）のチェック
+        LD      A, (KEY_STATE)  ; 前回の状態を取得
+        AND     80H             ; BIT7だけを見る（リズムキー）
+        LD      B, A            ; 前回の状態を保存
+        LD      A, C            ; 現在の状態を復帰
+        AND     80H             ; BIT7だけを見る
+        CP      B               ; 前回と比較
+        JR      Z, CHECK_P6     ; 変化なしなら次へ
+        LD      A, C            ; 現在の状態を復帰
+        LD      (KEY_STATE), A  ; 状態を更新
+        BIT     7, A            ; キーが離されたか（1=離された）
+        JR      NZ, CHECK_P6    ; 押されたままなら次へ
+        LD      B, 10           ; リズムキー
+        CALL    HANDLE_KEY      ; キー処理
+
+CHECK_P6:
+        ; ポート6（FM1-6, SSG1-2）の状態チェック
+        IN      A, (006H)       ; 現在のキー状態を読み込み
+        LD      C, A            ; 現在の状態を保存
+        LD      A, (KEY_STATE+1); 前回の状態を取得
+        LD      B, A            ; 前回の状態を保存
+        LD      A, C            ; 現在の状態を復帰
+        CP      B               ; 前回と比較
+        JR      Z, CHECK_P7     ; 変化なしなら次へ
+        LD      (KEY_STATE+1), A; 状態を更新
+        XOR     B               ; 変化したビットを検出
+        AND     B               ; 離されたビットだけを残す（1→0の変化）
+        LD      D, A            ; 変化状態を保存
+        LD      B, 0            ; キー番号初期化
+CHECK_P6_BITS:
+        BIT     0, D            ; ビットチェック
+        CALL    NZ, HANDLE_KEY  ; キーが離された場合処理
+        INC     B               ; 次のキー番号
+        RRC     D               ; 次のビット
+        LD      A, B
+        CP      8               ; 8ビットチェック完了？
+        JP      NZ, CHECK_P6_BITS
+
+CHECK_P7:
+        ; ポート7（SSG3, ADPCM）の状態チェック
+        IN      A, (007H)       ; 現在のキー状態を読み込み
+        LD      C, A            ; 現在の状態を保存
+        LD      A, (KEY_STATE+2); 前回の状態を取得
+        LD      B, A            ; 前回の状態を保存
+        LD      A, C            ; 現在の状態を復帰
+        CP      B               ; 前回と比較
+        JR      Z, CHECK_END    ; 変化なしなら終了
+        LD      (KEY_STATE+2), A; 状態を更新
+        XOR     B               ; 変化したビットを検出
+        AND     B               ; 離されたビットだけを残す（1→0の変化）
+        LD      D, A            ; 変化状態を保存
+        LD      B, 8            ; キー番号初期化（SSG3から）
+CHECK_P7_BITS:
+        BIT     0, D            ; ビットチェック
+        CALL    NZ, HANDLE_KEY  ; キーが離された場合処理
+        INC     B               ; 次のキー番号
+        RRC     D               ; 次のビット
+        LD      A, B
+        CP      10              ; 2ビットチェック完了？
+        JP      NZ, CHECK_P7_BITS
+
+CHECK_END:
         POP     IY
         JP      MUTECHK
 
-SPLOOP:
+; キー処理サブルーチン
+HANDLE_KEY:
+        PUSH    AF
         PUSH    BC
-        CALL    DSPCH
+        PUSH    DE
+        PUSH    HL
+
+        LD      A, B           ; キー番号をAに
+        CP      0
+        JP      Z, DO_ADPCM
+        CP      1
+        JP      Z, DO_FM1
+        CP      2
+        JP      Z, DO_FM2
+        CP      3
+        JP      Z, DO_FM3
+        CP      4
+        JP      Z, DO_FM4
+        CP      5
+        JP      Z, DO_FM5
+        CP      6
+        JP      Z, DO_FM6
+        CP      7
+        JP      Z, DO_SSG1
+        CP      8
+        JP      Z, DO_SSG2
+        CP      9
+        JP      Z, DO_SSG3
+        CP      10
+        JP      Z, DO_RHYTHM
+
+        POP     HL
+        POP     DE
         POP     BC
+        POP     AF
+        RET
 
-        XOR     A
-        CP      B
-        JR      Z, RELKY0
-        INC     A
-        CP      B
-        JR      Z, RELKY1
-        INC     A
-        CP      B
-        JR      Z, RELKY2
-        INC     A
-        CP      B
-        JR      Z, RELKY3
-        INC     A
-        CP      B
-        JR      Z, RELKY4
-        INC     A
-        CP      B
-        JR      Z, RELKY5
-        INC     A
-        CP      B
-        JR      Z, RELKY6
-        INC     A
-        CP      B
-        JR      Z, RELKY7
-        INC     A
-        CP      B
-        JR      Z, RELKY8
-        INC     A
-        CP      B
-        JR      Z, RELKY9
-        INC     A
-        CP      B
-        JR      Z, RELKY10
-        JP      SPLOOP
+DO_FM1:
+        BIT     0, (IY)
+        JR      Z, SET_FM1
+        RES     0, (IY)
+        JP      KEY_END
+SET_FM1:
+        SET     0, (IY)
+        JP      KEY_END
 
-RELKY0:
-        IN      A, (006H)
-        BIT     0, A
-        JP      NZ, ADPCMMP
-        JP      SPLOOP
+DO_FM2:
+        BIT     1, (IY)
+        JR      Z, SET_FM2
+        RES     1, (IY)
+        JP      KEY_END
+SET_FM2:
+        SET     1, (IY)
+        JP      KEY_END
 
-RELKY1:
-        IN      A, (006H)
-        BIT     1, A
-        JP      NZ, FM1MP
-        JP      SPLOOP
+DO_FM3:
+        BIT     2, (IY)
+        JR      Z, SET_FM3
+        RES     2, (IY)
+        JP      KEY_END
+SET_FM3:
+        SET     2, (IY)
+        JP      KEY_END
 
-RELKY2:
-        IN      A, (006H)
-        BIT     2, A
-        JP      NZ, FM2MP
-        JP      SPLOOP
+DO_FM4:
+        BIT     3, (IY)
+        JR      Z, SET_FM4
+        RES     3, (IY)
+        JP      KEY_END
+SET_FM4:
+        SET     3, (IY)
+        JP      KEY_END
 
-RELKY3:
-        IN      A, (006H)
-        BIT     3, A
-        JP      NZ, FM3MP
-        JP      SPLOOP
+DO_FM5:
+        BIT     4, (IY)
+        JR      Z, SET_FM5
+        RES     4, (IY)
+        JP      KEY_END
+SET_FM5:
+        SET     4, (IY)
+        JP      KEY_END
 
-RELKY4:
-        IN      A, (006H)
-        BIT     4, A
-        JP      NZ, FM4MP
-        JP      SPLOOP
+DO_FM6:
+        BIT     5, (IY)
+        JR      Z, SET_FM6
+        RES     5, (IY)
+        JP      KEY_END
+SET_FM6:
+        SET     5, (IY)
+        JP      KEY_END
 
-RELKY5:
-        IN      A, (006H)
-        BIT     5, A
-        JP      NZ, FM5MP
-        JP      SPLOOP
+DO_SSG1:
+        BIT     6, (IY)
+        JR      Z, SET_SSG1
+        RES     6, (IY)
+        JP      KEY_END
+SET_SSG1:
+        SET     6, (IY)
+        JP      KEY_END
 
-RELKY6:
-        IN      A, (006H)
-        BIT     6, A
-        JP      NZ, FM6MP
-        JP      SPLOOP
+DO_SSG2:
+        BIT     7, (IY)
+        JR      Z, SET_SSG2
+        RES     7, (IY)
+        JP      KEY_END
+SET_SSG2:
+        SET     7, (IY)
+        JP      KEY_END
 
-RELKY7:
-        IN      A, (006H)
-        BIT     7, A
-        JP      NZ, SSG1MP
-        JP      SPLOOP
+DO_SSG3:
+        BIT     0, (IY+1)
+        JR      Z, SET_SSG3
+        RES     0, (IY+1)
+        JP      KEY_END
+SET_SSG3:
+        SET     0, (IY+1)
+        JP      KEY_END
 
-RELKY8:
-        IN      A, (007H)
-        BIT     0, A
-        JP      NZ, SSG2MP
-        JP      SPLOOP
-
-RELKY9:
-        IN      A, (007H)
-        BIT     1, A
-        JP      NZ, SSG3MP
-        JP      SPLOOP
-
-RELKY10:
-        IN      A, (005H)
-        BIT     7, A
-        JP      NZ, RHYMP
-        JP      SPLOOP
-
-ADPCMMP:
+DO_ADPCM:
         BIT     1, (IY+1)
-        JR      Z, SETMPCM
+        JR      Z, SET_ADPCM
         RES     1, (IY+1)
         XOR     A
         LD      (VOLFLAG), A
-        JP      MPEND
-
-SETMPCM:
+        JP      KEY_END
+SET_ADPCM:
         SET     1, (IY+1)
         LD      A, 01H
         LD      (VOLFLAG), A
         LD      IX, 0BEC7H
         LD      (IX+VOLPUSH), -255
-        JP      MPEND
+        JP      KEY_END
 
-FM1MP:
-        BIT     0, (IY)
-        JR      Z, SETMFM1
-        RES     0, (IY)
-        JP      MPEND
-
-SETMFM1:
-        SET     0, (IY)
-        JP      MPEND
-
-FM2MP:
-        BIT     1, (IY)
-        JR      Z, SETMFM2
-        RES     1, (IY)
-        JP      MPEND
-
-SETMFM2:
-        SET     1, (IY)
-        JP      MPEND
-
-FM3MP:
-        BIT     2, (IY)
-        JR      Z, SETMFM3
-        RES     2, (IY)
-        JP      MPEND
-
-SETMFM3:
-        SET     2, (IY)
-        JP      MPEND
-
-FM4MP:
-        BIT     3, (IY)
-        JR      Z, SETMFM4
-        RES     3, (IY)
-        JP      MPEND
-
-SETMFM4:
-        SET     3, (IY)
-        JP      MPEND
-
-FM5MP:
-        BIT     4, (IY)
-        JR      Z, SETMFM5
-        RES     4, (IY)
-        JP      MPEND
-
-SETMFM5:
-        SET     4, (IY)
-        JP      MPEND
-
-FM6MP:
-        BIT     5, (IY)
-        JR      Z, SETMFM6
-        RES     5, (IY)
-        JP      MPEND
-
-SETMFM6:
-        SET     5, (IY)
-        JP      MPEND
-
-SSG1MP:
-        BIT     6, (IY)
-        JR      Z, SETMSG1
-        RES     6, (IY)
-        JP      MPEND
-
-SETMSG1:
-        SET     6, (IY)
-        JP      MPEND
-
-SSG2MP:
-        BIT     7, (IY)
-        JR      Z, SETMSG2
-        RES     7, (IY)
-        JP      MPEND
-
-SETMSG2:
-        SET     7, (IY)
-        JP      MPEND
-
-SSG3MP:
-        BIT     0, (IY+1)
-        JR      Z, SETMSG3
-        RES     0, (IY+1)
-        JP      MPEND
-
-SETMSG3:
-        SET     0, (IY+1)
-        JP      MPEND
-
-RHYMP:
+DO_RHYTHM:
         BIT     2, (IY+1)
-        JR      Z, SETMRHY
+        JR      Z, SET_RHYTHM
         RES     2, (IY+1)
-        JP      MPEND
-
-SETMRHY:
+        JP      KEY_END
+SET_RHYTHM:
         SET     2, (IY+1)
 
-MPEND:
-        POP     IY
+KEY_END:
+        POP     HL
+        POP     DE
+        POP     BC
+        POP     AF
         RET
 
 ;=================================================
@@ -1233,6 +1209,10 @@ POSRHY2:DW      0F4B8H
 MUTEFLG:DW      0
 NOWCHMT:DB      0
 RHYTVOL:DB      03CH
+KEY_STATE: DB      0FFH          ; ポート5の前回のキー状態
+        DB      0FFH          ; ポート6の前回のキー状態
+        DB      0FFH          ; ポート7の前回のキー状態
+        DB      0FFH          ; ポート4の前回のキー状態（^キー用）
 
 WRKADR: DW      0BD60H
         DW      0BD87H
@@ -1460,3 +1440,32 @@ FMPAN:      EQU     38
 FMLEN:      EQU     39
 SSGPAT:     EQU     42
 SSGLEN:     EQU     43
+
+; 全音ミュート処理サブルーチン
+ALL_MUTE:
+        PUSH    AF
+        PUSH    BC
+        PUSH    DE
+        PUSH    HL
+
+        LD      HL, (MUTEFLG)
+        LD      A, H
+        OR      L
+        JR      NZ, UNMUTE_ALL  ; ミュート中なら全解除
+
+        ; 全チャンネルをミュート
+        LD      HL, 0FFFFH
+        LD      (MUTEFLG), HL
+        JP      ALL_MUTE_END
+
+UNMUTE_ALL:
+        ; 全チャンネルのミュートを解除
+        LD      HL, 0
+        LD      (MUTEFLG), HL
+
+ALL_MUTE_END:
+        POP     HL
+        POP     DE
+        POP     BC
+        POP     AF
+        RET
